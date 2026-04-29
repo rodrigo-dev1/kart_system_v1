@@ -17,13 +17,13 @@ let DB = { campeonatos: [], pilotos: [], resultados: [] };
 let HISTORICO_CACHE = [];
 
 const MEUS_PILOTOS = [
-    { id: "41938",  nome: "LEONARDO LEMES"    },
-    { id: "231138", nome: "RODRIGO CRUZ"      },
-    { id: "232869", nome: "JOÃO VICTOR"       },
-    { id: "4196",   nome: "JÚLIO CEZAR"       },
-    { id: "51107",  nome: "DANILO OLIVEIRA"   },
+    { id: "41938", nome: "LEONARDO LEMES" },
+    { id: "231138", nome: "RODRIGO CRUZ" },
+    { id: "232869", nome: "JOÃO VICTOR" },
+    { id: "4196", nome: "JÚLIO CEZAR" },
+    { id: "51107", nome: "DANILO OLIVEIRA" },
     { id: "232984", nome: "FRANCISCO CAMILLO" },
-    { id: "232194", nome: "LUCAS OLIVEIRA"    }
+    { id: "232194", nome: "LUCAS OLIVEIRA" }
 ];
 
 const TIPOS_ARQUIVO = [
@@ -51,56 +51,30 @@ function show(id) {
     document.getElementById(id).classList.add("active");
 }
 
-function htmlEscape(v) {
-    return String(v || "").replace(/[&<>'"]/g, c => ({
-        "&": "&amp;",
-        "<": "&lt;",
-        ">": "&gt;",
-        "'": "&#39;",
-        '"': "&quot;"
-    }[c]));
-}
-
-function normalizarChave(v) {
-    return String(v || "")
-        .normalize("NFD")
-        .replace(/[\u0300-\u036f]/g, "")
-        .replace(/[^a-zA-Z0-9_-]/g, "_")
-        .toLowerCase();
-}
-
-function hojeISO() {
-    return new Date().toISOString().slice(0, 10);
-}
-
-function formatarDataBR(dataISO) {
-    if (!dataISO) return "-";
-
-    const partes = dataISO.split("-");
-    if (partes.length !== 3) return dataISO;
-
-    return `${partes[2]}/${partes[1]}/${partes[0]}`;
-}
+function htmlEscape(v) { return String(v || "").replace(/[&<>'"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;" }[c])); }
+function normalizarChave(v) { return String(v || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-zA-Z0-9_-]/g, "_").toLowerCase(); }
+function hojeISO() { return new Date().toISOString().slice(0, 10); }
+function formatarDataBR(dataISO) { if (!dataISO) return "-"; const p = dataISO.split("-"); return p.length === 3 ? `${p[2]}/${p[1]}/${p[0]}` : dataISO; }
 
 function extrairDataItem(item) {
     if (item.dataCorrida) return item.dataCorrida;
     if (item.dataUploadISO) return item.dataUploadISO.slice(0, 10);
-
-    const matchDataBR = String(item.dataUpload || "").match(/(\d{2})\/(\d{2})\/(\d{4})/);
-    if (matchDataBR) return `${matchDataBR[3]}-${matchDataBR[2]}-${matchDataBR[1]}`;
-
+    const m = String(item.dataUpload || "").match(/(\d{2})\/(\d{2})\/(\d{4})/);
+    if (m) return `${m[3]}-${m[2]}-${m[1]}`;
     return hojeISO();
 }
 
 function arquivoParaDataUrl(file) {
     return new Promise((resolve, reject) => {
         const reader = new FileReader();
-
         reader.onload = () => resolve(reader.result);
         reader.onerror = reject;
-
         reader.readAsDataURL(file);
     });
+}
+
+function pilotosDoCampeonato(campeonato) {
+    return DB.pilotos.filter(p => p.vinculos && p.vinculos.includes(campeonato));
 }
 
 async function fazerBackupEProcessar() {
@@ -111,352 +85,185 @@ async function fazerBackupEProcessar() {
     if (!campeonato) return alert("Selecione o campeonato!");
     if (!dataCorrida) return alert("Informe a data da corrida!");
 
-    const arquivos = TIPOS_ARQUIVO.map(cfg => ({
-        ...cfg,
-        file: document.getElementById(cfg.inputId).files[0]
-    }));
-
-    const faltando = arquivos
-        .filter(a => !a.file)
-        .map(a => a.label)
-        .join(", ");
-
-    if (faltando) {
-        return alert("Selecione os 3 arquivos. Faltando: " + faltando);
-    }
+    const arquivos = TIPOS_ARQUIVO.map(cfg => ({ ...cfg, file: document.getElementById(cfg.inputId).files[0] }));
+    const faltando = arquivos.filter(a => !a.file).map(a => a.label).join(", ");
+    if (faltando) return alert("Selecione os 3 arquivos. Faltando: " + faltando);
 
     status.innerHTML = "⏳ Salvando os 3 arquivos...";
     document.getElementById("previewImportacao").innerHTML = "";
 
+    let htmlResultadoFinal = "";
+
     for (let i = 0; i < arquivos.length; i++) {
         const item = arquivos[i];
         const file = item.file;
-
         const dataUrl = await arquivoParaDataUrl(file);
-
-        const isTexto =
-            file.type.includes("html") ||
-            file.type.includes("text") ||
-            file.name.toLowerCase().endsWith(".html") ||
-            file.name.toLowerCase().endsWith(".htm");
-
+        const isTexto = file.type.includes("html") || file.type.includes("text") || file.name.toLowerCase().endsWith(".html") || file.name.toLowerCase().endsWith(".htm");
         const conteudoRaw = isTexto ? await file.text() : "";
-
         const idUnico = `${dataCorrida}_${normalizarChave(campeonato)}_${item.tipo}_${Date.now()}_${i}`;
 
         await database.ref("backups/" + idUnico).set({
-            campeonato: campeonato,
-            dataCorrida: dataCorrida,
-            tipoArquivo: item.tipo,
-            tipoLabel: item.label,
-            nomeArquivo: file.name,
-            mimeType: file.type || (file.name.toLowerCase().endsWith(".pdf") ? "application/pdf" : "text/html"),
-            tamanhoBytes: file.size,
-            dataUpload: new Date().toLocaleString("pt-BR"),
-            dataUploadISO: new Date().toISOString(),
-            dataUrl: dataUrl,
-            conteudo: conteudoRaw
+            campeonato, dataCorrida, tipoArquivo: item.tipo, tipoLabel: item.label,
+            nomeArquivo: file.name, mimeType: file.type || (file.name.toLowerCase().endsWith(".pdf") ? "application/pdf" : "text/html"),
+            tamanhoBytes: file.size, dataUpload: new Date().toLocaleString("pt-BR"), dataUploadISO: new Date().toISOString(), dataUrl, conteudo: conteudoRaw
         });
 
-        if (item.tipo === "resultado_final" && conteudoRaw) {
-            analisarHTML(conteudoRaw, campeonato, dataCorrida);
-        }
+        if (item.tipo === "resultado_final" && conteudoRaw) htmlResultadoFinal = conteudoRaw;
     }
 
-    status.innerHTML = "✅ Arquivos salvos no Firebase!";
+    if (htmlResultadoFinal) {
+        const encontrados = analisarHTML(htmlResultadoFinal, campeonato, dataCorrida, true);
+        const lancados = await lancarAutomatico(encontrados, campeonato, dataCorrida);
+        status.innerHTML = `✅ Arquivos salvos. ${lancados} resultado(s) lançado(s) automaticamente.`;
+    } else {
+        status.innerHTML = "✅ Arquivos salvos no Firebase!";
+    }
 
-    TIPOS_ARQUIVO.forEach(cfg => {
-        document.getElementById(cfg.inputId).value = "";
-    });
+    TIPOS_ARQUIVO.forEach(cfg => { document.getElementById(cfg.inputId).value = ""; });
 }
 
-function analisarHTML(htmlText, campeonato = "", dataCorrida = "") {
+async function enviarResultado(payload) {
+    const r = await fetch(URL_API, { method: "POST", body: JSON.stringify(payload) });
+    const t = await r.text();
+    if (!t.includes("Sucesso")) throw new Error(t || "Falha ao lançar");
+}
+
+async function lancarAutomatico(encontrados, campeonato, dataCorrida) {
+    const participantes = new Set(pilotosDoCampeonato(campeonato).map(p => (p.nome || "").toUpperCase()));
+    const validos = encontrados.filter(p => participantes.has((p.nome || "").toUpperCase()));
+
+    let count = 0;
+    for (const p of validos) {
+        const payload = { tipo: "resultados", campeonato, piloto: p.nome, posicao: p.pos, etapa: "", data: dataCorrida, auto: true };
+        try { await enviarResultado(payload); count += 1; } catch (e) { console.error(e); }
+    }
+    return count;
+}
+
+function analisarHTML(htmlText, campeonato = "", dataCorrida = "", auto = false) {
     const doc = new DOMParser().parseFromString(htmlText, "text/html");
     const rows = doc.querySelectorAll("tr");
+    const participantes = pilotosDoCampeonato(campeonato);
 
     let encontrados = [];
-
     rows.forEach(row => {
-        MEUS_PILOTOS.forEach(p => {
-            if (row.innerText.includes(p.id)) {
+        participantes.forEach(p => {
+            const pilotoId = String(p.id || "");
+            if (pilotoId && row.innerText.includes(pilotoId)) {
                 const tds = row.querySelectorAll("td");
                 const pos = tds.length ? tds[0].innerText.trim() : "";
-
-                encontrados.push({
-                    nome: p.nome,
-                    pos: pos
-                });
+                encontrados.push({ nome: p.nome, pos: pos, id: pilotoId });
             }
         });
     });
 
     let h = "<h3>Pilotos Identificados no Resultado Final:</h3>";
-
-    if (!encontrados.length) {
-        h += "<p class='muted'>Nenhum piloto do campeonato foi identificado automaticamente.</p>";
-    }
-
+    if (!encontrados.length) h += "<p class='muted'>Nenhum piloto do campeonato foi identificado automaticamente.</p>";
     encontrados.forEach(i => {
-        h += `
-            <div class="piloto-card">
-                <span><strong>${htmlEscape(i.nome)}</strong> (P${htmlEscape(i.pos)})</span>
-                <button onclick="preencher('${htmlEscape(i.nome)}','${htmlEscape(i.pos)}','${htmlEscape(campeonato)}','${htmlEscape(dataCorrida)}')" style="width:auto; padding:5px 15px; margin:0; font-size:12px;">
-                    Lançar
-                </button>
-            </div>
-        `;
+        h += `<div class="piloto-card"><span><strong>${htmlEscape(i.nome)}</strong> (P${htmlEscape(i.pos)})</span><button onclick="preencher('${htmlEscape(i.nome)}','${htmlEscape(i.pos)}','${htmlEscape(campeonato)}','${htmlEscape(dataCorrida)}')" style="width:auto; padding:5px 15px; margin:0; font-size:12px;">Lançar</button></div>`;
     });
 
+    if (auto) h += "<p class='hint'>Somente pilotos vinculados ao campeonato foram considerados.</p>";
     document.getElementById("previewImportacao").innerHTML = h;
+    return encontrados;
 }
 
-function preencher(nome, pos, campeonato = "", dataCorrida = "") {
-    show("lançar");
-
-    const selPiloto = document.getElementById("sel_piloto");
-
-    if (!Array.from(selPiloto.options).some(opt => opt.value === nome)) {
-        const opt = document.createElement("option");
-        opt.value = nome;
-        opt.text = nome;
-        selPiloto.add(opt);
-    }
-
-    if (campeonato) {
-        document.getElementById("sel_camp").value = campeonato;
-        filtrarPilotosPorCamp();
-
-        if (!Array.from(selPiloto.options).some(opt => opt.value === nome)) {
-            const opt = document.createElement("option");
-            opt.value = nome;
-            opt.text = nome;
-            selPiloto.add(opt);
-        }
-    }
-
-    selPiloto.value = nome;
-    document.getElementById("res_pos").value = parseInt(pos) || "";
-
-    if (dataCorrida) {
-        document.getElementById("res_data").value = dataCorrida;
-    }
-
-    document.getElementById("res_etapa").focus();
+function abrirGestao() {
+    show("gestao");
+    renderGestao();
 }
 
-function carregarHistorico() {
-    const lista = document.getElementById("listaHistorico");
-    const detalhe = document.getElementById("arquivosDoDia");
+function renderGestao() {
+    document.getElementById("listaCampeonatos").innerHTML = DB.campeonatos.map(c => `<div class='piloto-card'><span>${htmlEscape(c.nome)}</span><span><button class='btn-view' onclick="editarCampeonato('${htmlEscape(c.nome)}')">Editar</button> <button class='btn-view' onclick="excluirCampeonato('${htmlEscape(c.nome)}')">Excluir</button></span></div>`).join("");
+    document.getElementById("listaPilotos").innerHTML = DB.pilotos.map(p => `<div class='piloto-card'><span>${htmlEscape(p.nome)}</span><span><button class='btn-view' onclick="editarPiloto('${htmlEscape(p.nome)}')">Editar</button> <button class='btn-view' onclick="excluirPiloto('${htmlEscape(p.nome)}')">Excluir</button></span></div>`).join("");
+}
 
-    lista.innerHTML = "Carregando dias...";
-    detalhe.innerHTML = "";
+async function enviarGestao(payload) {
+    const r = await fetch(URL_API, { method: "POST", body: JSON.stringify(payload) });
+    alert(await r.text());
+    await fetchData();
+    renderGestao();
+}
 
-    database.ref("backups").once("value", snapshot => {
-        HISTORICO_CACHE = [];
+function novoCampeonato() { const nome = prompt("Nome do campeonato:"); if (nome) enviarGestao({ tipo: "campeonatos", acao: "criar", nome }); }
+function editarCampeonato(nomeAtual) { const nome = prompt("Novo nome:", nomeAtual); if (nome && nome !== nomeAtual) enviarGestao({ tipo: "campeonatos", acao: "editar", nomeAtual, nome }); }
+function excluirCampeonato(nome) { if (confirm(`Excluir campeonato ${nome}?`)) enviarGestao({ tipo: "campeonatos", acao: "excluir", nome }); }
+function novoPiloto() { const nome = prompt("Nome do piloto:"); if (!nome) return; const id = prompt("ID do piloto no sistema de corrida:") || ""; const vinculos = prompt("Campeonatos (separados por vírgula):", "") || ""; enviarGestao({ tipo: "pilotos", acao: "criar", nome, id, vinculos: vinculos.split(",").map(v => v.trim()).filter(Boolean) }); }
+function editarPiloto(nomeAtual) { const p = DB.pilotos.find(x => x.nome === nomeAtual); if (!p) return; const nome = prompt("Novo nome:", p.nome) || p.nome; const id = prompt("Novo ID:", p.id || "") || ""; const vinculosAtual = (p.vinculos || []).join(", "); const vinculos = prompt("Campeonatos (separados por vírgula):", vinculosAtual) || vinculosAtual; enviarGestao({ tipo: "pilotos", acao: "editar", nomeAtual, nome, id, vinculos: vinculos.split(",").map(v => v.trim()).filter(Boolean) }); }
+function excluirPiloto(nome) { if (confirm(`Excluir piloto ${nome}?`)) enviarGestao({ tipo: "pilotos", acao: "excluir", nome }); }
 
-        snapshot.forEach(child => {
-            HISTORICO_CACHE.push({
-                key: child.key,
-                ...child.val()
-            });
-        });
+function abrirHistoricoPiloto(nome) {
+    const f = document.getElementById("filtro_rank_camp").value;
+    const hist = DB.resultados.filter(r => (r.piloto || r.Piloto) === nome && (!f || (r.campeonato || r.Campeonato) === f)).sort((a, b) => String(a.data || a.Data).localeCompare(String(b.data || b.Data)));
+    const labels = hist.map((_, i) => i + 1);
+    const posicoes = hist.map(r => parseInt(r.posicao || r.Posicao) || 0);
 
-        if (!HISTORICO_CACHE.length) {
-            lista.innerHTML = "<p class='muted'>Nenhum arquivo encontrado.</p>";
-            return;
-        }
+    const modal = document.getElementById("historicoPiloto");
+    modal.style.display = "block";
+    document.getElementById("histTitulo").innerText = `Histórico de ${nome}`;
 
-        const grupos = {};
+    const canvas = document.getElementById("histCanvas");
+    const ctx = canvas.getContext("2d");
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-        HISTORICO_CACHE.forEach(item => {
-            const dia = extrairDataItem(item);
+    if (!posicoes.length) return;
+    const max = Math.max(...posicoes, 1);
+    ctx.strokeStyle = "#ff4b4b";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    posicoes.forEach((p, i) => {
+        const x = 20 + (i * (canvas.width - 40) / Math.max(labels.length - 1, 1));
+        const y = 20 + ((p - 1) * (canvas.height - 40) / Math.max(max - 1, 1));
+        if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+        ctx.fillText(String(p), x - 3, y - 6);
+    });
+    ctx.stroke();
+}
+function fecharHistoricoPiloto() { document.getElementById("historicoPiloto").style.display = "none"; }
 
-            if (!grupos[dia]) grupos[dia] = [];
-            grupos[dia].push(item);
-        });
+function preencher(nome, pos, campeonato = "", dataCorrida = "") { show("lançar"); const selPiloto = document.getElementById("sel_piloto"); if (!Array.from(selPiloto.options).some(opt => opt.value === nome)) { const opt = document.createElement("option"); opt.value = nome; opt.text = nome; selPiloto.add(opt); } if (campeonato) { document.getElementById("sel_camp").value = campeonato; filtrarPilotosPorCamp(); if (!Array.from(selPiloto.options).some(opt => opt.value === nome)) { const opt = document.createElement("option"); opt.value = nome; opt.text = nome; selPiloto.add(opt); } } selPiloto.value = nome; document.getElementById("res_pos").value = parseInt(pos) || ""; if (dataCorrida) document.getElementById("res_data").value = dataCorrida; document.getElementById("res_etapa").focus(); }
 
+function carregarHistorico() { /* unchanged below */
+    const lista = document.getElementById("listaHistorico"); const detalhe = document.getElementById("arquivosDoDia"); lista.innerHTML = "Carregando dias..."; detalhe.innerHTML = "";
+    database.ref("backups").once("value", snapshot => { HISTORICO_CACHE = []; snapshot.forEach(child => HISTORICO_CACHE.push({ key: child.key, ...child.val() })); if (!HISTORICO_CACHE.length) { lista.innerHTML = "<p class='muted'>Nenhum arquivo encontrado.</p>"; return; }
+        const grupos = {}; HISTORICO_CACHE.forEach(item => { const dia = extrairDataItem(item); if (!grupos[dia]) grupos[dia] = []; grupos[dia].push(item); });
         const dias = Object.keys(grupos).sort((a, b) => b.localeCompare(a));
-
-        let html = "";
-
-        dias.forEach(dia => {
-            const itens = grupos[dia];
-
-            const campeonatos = [...new Set(
-                itens.map(i => i.campeonato).filter(Boolean)
-            )].join(", ") || "Sem campeonato";
-
-            html += `
-                <button class="btn-day" onclick="renderArquivosDoDia('${dia}')">
-                    📅 ${formatarDataBR(dia)}<br>
-                    <small>${htmlEscape(campeonatos)} • ${itens.length} arquivo(s)</small>
-                </button>
-            `;
-        });
-
-        lista.innerHTML = html;
+        lista.innerHTML = dias.map(dia => { const itens = grupos[dia]; const camps = [...new Set(itens.map(i => i.campeonato).filter(Boolean))].join(", ") || "Sem campeonato"; return `<button class="btn-day" onclick="renderArquivosDoDia('${dia}')">📅 ${formatarDataBR(dia)}<br><small>${htmlEscape(camps)} • ${itens.length} arquivo(s)</small></button>`; }).join("");
     });
 }
-
-function renderArquivosDoDia(dia) {
-    const detalhe = document.getElementById("arquivosDoDia");
-
-    const ordem = {
-        volta_a_volta: 1,
-        classificacao: 2,
-        resultado_final: 3
-    };
-
-    const itens = HISTORICO_CACHE
-        .filter(item => extrairDataItem(item) === dia)
-        .sort((a, b) =>
-            (a.campeonato || "").localeCompare(b.campeonato || "") ||
-            (ordem[a.tipoArquivo] || 9) - (ordem[b.tipoArquivo] || 9)
-        );
-
-    let html = `<h3>📅 Arquivos de ${formatarDataBR(dia)}</h3>`;
-
-    itens.forEach(item => {
-        html += `
-            <div class="arquivo-card">
-                <div>
-                    <strong>${htmlEscape(item.tipoLabel || item.tipoArquivo || "Arquivo")}</strong><br>
-                    <small>${htmlEscape(item.campeonato || "Sem campeonato")} • ${htmlEscape(item.nomeArquivo || "-")}</small>
-                </div>
-                <button class="btn-view" onclick="verConteudo('${item.key}')">VER</button>
-            </div>
-        `;
-    });
-
-    detalhe.innerHTML = html;
-}
-
-function verConteudo(key) {
-    database.ref("backups/" + key).once("value", s => {
-        const item = s.val();
-        const win = window.open("", "_blank");
-
-        if (!item) {
-            win.document.write("Arquivo não encontrado.");
-            return;
-        }
-
-        const mime = item.mimeType || "";
-        const dataUrl = item.dataUrl || "";
-
-        if (mime.includes("pdf") && dataUrl) {
-            win.document.write(`<iframe src="${dataUrl}" style="width:100%;height:100vh;border:0;"></iframe>`);
-            return;
-        }
-
-        if (item.conteudo) {
-            win.document.write(item.conteudo);
-            return;
-        }
-
-        if (dataUrl) {
-            win.document.write(`<iframe src="${dataUrl}" style="width:100%;height:100vh;border:0;"></iframe>`);
-            return;
-        }
-
-        win.document.write("Não foi possível abrir o arquivo.");
-    });
-}
+function renderArquivosDoDia(dia) { const detalhe = document.getElementById("arquivosDoDia"); const ordem = { volta_a_volta: 1, classificacao: 2, resultado_final: 3 }; const itens = HISTORICO_CACHE.filter(item => extrairDataItem(item) === dia).sort((a, b) => (a.campeonato || "").localeCompare(b.campeonato || "") || (ordem[a.tipoArquivo] || 9) - (ordem[b.tipoArquivo] || 9)); let html = `<h3>📅 Arquivos de ${formatarDataBR(dia)}</h3>`; itens.forEach(item => { html += `<div class="arquivo-card"><div><strong>${htmlEscape(item.tipoLabel || item.tipoArquivo || "Arquivo")}</strong><br><small>${htmlEscape(item.campeonato || "Sem campeonato")} • ${htmlEscape(item.nomeArquivo || "-")}</small></div><button class="btn-view" onclick="verConteudo('${item.key}')">VER</button></div>`; }); detalhe.innerHTML = html; }
+function verConteudo(key) { database.ref("backups/" + key).once("value", s => { const item = s.val(); const win = window.open("", "_blank"); if (!item) return win.document.write("Arquivo não encontrado."); const mime = item.mimeType || ""; const dataUrl = item.dataUrl || ""; if (mime.includes("pdf") && dataUrl) return win.document.write(`<iframe src="${dataUrl}" style="width:100%;height:100vh;border:0;"></iframe>`); if (item.conteudo) return win.document.write(item.conteudo); if (dataUrl) return win.document.write(`<iframe src="${dataUrl}" style="width:100%;height:100vh;border:0;"></iframe>`); win.document.write("Não foi possível abrir o arquivo."); }); }
 
 function renderRanking() {
     const f = document.getElementById("filtro_rank_camp").value;
-
-    const res = f
-        ? DB.resultados.filter(r => (r.campeonato || r.Campeonato) === f)
-        : DB.resultados;
-
+    const res = f ? DB.resultados.filter(r => (r.campeonato || r.Campeonato) === f) : DB.resultados;
     const soma = {};
-
-    res.forEach(r => {
-        const n = r.piloto || r.Piloto;
-        soma[n] = (soma[n] || 0) + (parseInt(r.pontos || r.Pontos) || 0);
-    });
-
+    res.forEach(r => { const n = r.piloto || r.Piloto; soma[n] = (soma[n] || 0) + (parseInt(r.pontos || r.Pontos) || 0); });
     const sorted = Object.entries(soma).sort((a, b) => b[1] - a[1]);
-
-    let h = "<table><tr><th>Pos</th><th>Piloto</th><th>Pts</th></tr>";
-
+    const total = sorted.reduce((acc, [, pts]) => acc + pts, 0);
+    let h = "<table><tr><th>Pos</th><th>Piloto</th><th>Pts</th><th>%</th></tr>";
     sorted.forEach((p, i) => {
-        h += `<tr><td>${i + 1}º</td><td>${htmlEscape(p[0])}</td><td>${p[1]}</td></tr>`;
+        const perc = total ? ((p[1] / total) * 100).toFixed(1) : "0.0";
+        h += `<tr><td>${i + 1}º</td><td><button class='btn-view' onclick="abrirHistoricoPiloto('${htmlEscape(p[0])}')">${htmlEscape(p[0])}</button></td><td>${p[1]}</td><td><small>${perc}%</small></td></tr>`;
     });
-
     document.getElementById("rankingContent").innerHTML = h + "</table>";
 }
 
 function popularFiltros() {
-    const opts = DB.campeonatos
-        .map(c => `<option value="${htmlEscape(c.nome)}">${htmlEscape(c.nome)}</option>`)
-        .join("");
-
+    const opts = DB.campeonatos.map(c => `<option value="${htmlEscape(c.nome)}">${htmlEscape(c.nome)}</option>`).join("");
     document.getElementById("filtro_rank_camp").innerHTML = '<option value="">📊 Ranking Geral</option>' + opts;
     document.getElementById("sel_camp").innerHTML = '<option value="">Selecione o Campeonato</option>' + opts;
     document.getElementById("imp_camp").innerHTML = '<option value="">Selecione o Campeonato</option>' + opts;
-
     document.getElementById("imp_data").value = hojeISO();
     document.getElementById("res_data").value = hojeISO();
-
-    const pOpts = DB.pilotos
-        .map(p => `<option value="${htmlEscape(p.nome)}">${htmlEscape(p.nome)}</option>`)
-        .sort()
-        .join("");
-
+    const pOpts = DB.pilotos.map(p => `<option value="${htmlEscape(p.nome)}">${htmlEscape(p.nome)}</option>`).sort().join("");
     document.getElementById("sel_piloto").innerHTML = '<option value="">Selecione o Piloto</option>' + pOpts;
 }
 
-function filtrarPilotosPorCamp() {
-    const c = document.getElementById("sel_camp").value;
+function filtrarPilotosPorCamp() { const c = document.getElementById("sel_camp").value; if (!c) return; const p = DB.pilotos.filter(pil => pil.vinculos && pil.vinculos.includes(c)); document.getElementById("sel_piloto").innerHTML = '<option value="">Selecione o Piloto</option>' + p.map(pil => `<option value="${htmlEscape(pil.nome)}">${htmlEscape(pil.nome)}</option>`).join(""); }
 
-    if (!c) return;
-
-    const p = DB.pilotos.filter(pil => pil.vinculos && pil.vinculos.includes(c));
-
-    document.getElementById("sel_piloto").innerHTML =
-        '<option value="">Selecione o Piloto</option>' +
-        p.map(pil => `<option value="${htmlEscape(pil.nome)}">${htmlEscape(pil.nome)}</option>`).join("");
-}
-
-async function salvar(tipo) {
-    const btn = event.target;
-
-    btn.innerText = "⏳ ENVIANDO...";
-    btn.disabled = true;
-
-    let p = { tipo: tipo };
-
-    if (tipo === "resultados") {
-        p.senha = document.getElementById("pass_res").value;
-        p.campeonato = document.getElementById("sel_camp").value;
-        p.piloto = document.getElementById("sel_piloto").value;
-        p.posicao = document.getElementById("res_pos").value;
-        p.etapa = document.getElementById("res_etapa").value;
-        p.data = document.getElementById("res_data").value;
-    }
-
-    try {
-        const r = await fetch(URL_API, {
-            method: "POST",
-            body: JSON.stringify(p)
-        });
-
-        const t = await r.text();
-
-        if (t.includes("Sucesso")) {
-            alert("✅ Corrida gravada com sucesso!");
-            location.reload();
-        } else {
-            alert("❌ Erro: Senha incorreta ou dados faltando.");
-            btn.disabled = false;
-            btn.innerText = "GRAVAR NO GOOGLE SHEETS";
-        }
-    } catch (e) {
-        alert("Erro de rede");
-        btn.disabled = false;
-    }
+async function salvar(tipo) { const btn = event.target; btn.innerText = "⏳ ENVIANDO..."; btn.disabled = true; let p = { tipo }; if (tipo === "resultados") { p.senha = document.getElementById("pass_res").value; p.campeonato = document.getElementById("sel_camp").value; p.piloto = document.getElementById("sel_piloto").value; p.posicao = document.getElementById("res_pos").value; p.etapa = document.getElementById("res_etapa").value; p.data = document.getElementById("res_data").value; }
+    try { const r = await fetch(URL_API, { method: "POST", body: JSON.stringify(p) }); const t = await r.text(); if (t.includes("Sucesso")) { alert("✅ Corrida gravada com sucesso!"); location.reload(); } else { alert("❌ Erro: Senha incorreta ou dados faltando."); btn.disabled = false; btn.innerText = "GRAVAR NO GOOGLE SHEETS"; } } catch (e) { alert("Erro de rede"); btn.disabled = false; }
 }
 
 fetchData();
