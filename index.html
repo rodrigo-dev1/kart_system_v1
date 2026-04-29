@@ -65,6 +65,7 @@
         <p class="hint">Selecione o campeonato, a data da corrida e envie os 3 arquivos obrigatórios.</p>
 
         <select id="imp_camp"></select>
+        <input type="number" id="imp_etapa" placeholder="Etapa (obrigatório)" min="1">
         <input type="date" id="imp_data">
 
         <label class="file-label" for="fileVoltaVolta">1) Volta a volta</label>
@@ -79,6 +80,7 @@
         <button onclick="fazerBackupEProcessar()" style="background: #2196F3;">SALVAR OS 3 ARQUIVOS NO FIREBASE</button>
         <div id="statusImport" style="text-align: center; margin-top: 10px; color: #ffeb3b;"></div>
         <div id="previewImportacao" style="margin-top: 15px;"></div>
+        <button id="btnConfirmarImportacao" onclick="confirmarImportacao()" style="display:none;">CONFIRMAR IMPORTAÇÃO</button>
     </div>
 </div>
 
@@ -113,6 +115,18 @@
             <input id="camp_data_fim" type="date" placeholder="Data de fim">
             <button onclick="salvarCampeonato()">Salvar campeonato</button>
             <div id="feedbackCampeonato" class="feedback"></div>
+            <div class="piloto-card" style="align-items:flex-end;">
+                <div style="flex:1;">
+                    <label>Posição</label>
+                    <input id="pont_posicao" type="number" min="1" placeholder="posição">
+                </div>
+                <div style="flex:1;">
+                    <label>Pontos</label>
+                    <input id="pont_pontos" type="number" placeholder="pontos">
+                </div>
+                <button style="width:auto;" onclick="adicionarPontuacaoLinha()">+ Pontuação</button>
+            </div>
+            <div id="listaPontuacoes"></div>
             <div id="listaCampeonatos" style="margin-top: 10px;"></div>
         </div>
 

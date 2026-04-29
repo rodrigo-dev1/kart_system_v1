@@ -18,6 +18,8 @@ let HISTORICO_CACHE = [];
 let abaGestaoAtual = "campeonatos";
 let campeonatoEditando = null;
 let pilotoEditando = null;
+let IMPORTACAO_PREVIA = [];
+const PONTOS_PADRAO = { 1: 20, 2: 17, 3: 15, 4: 13, 5: 11, 6: 10, 7: 9, 8: 8, 9: 7, 10: 6 };
 
 const MEUS_PILOTOS = [
     { id: "41938", nome: "LEONARDO LEMES" },
@@ -85,15 +87,21 @@ function arquivoParaDataUrl(file) {
 }
 
 function pilotosDoCampeonato(campeonato) {
-    return DB.pilotos.filter(p => p.vinculos && p.vinculos.includes(campeonato));
+    return DB.pilotos.filter(p => vinculosPiloto(p).includes(campeonato));
+}
+function pontuacaoPorPosicao(campeonato, posicao) {
+    const base = (DB.pontuacoes || []).find(p => p.campeonato === campeonato && parseInt(p.posicao) === parseInt(posicao));
+    return parseInt(base?.pontos) || 0;
 }
 
 async function fazerBackupEProcessar() {
     const campeonato = document.getElementById("imp_camp").value;
+    const etapa = document.getElementById("imp_etapa").value;
     const dataCorrida = document.getElementById("imp_data").value;
     const status = document.getElementById("statusImport");
 
     if (!campeonato) return alert("Selecione o campeonato!");
+    if (!etapa) return alert("Informe a etapa!");
     if (!dataCorrida) return alert("Informe a data da corrida!");
 
     const arquivos = TIPOS_ARQUIVO.map(cfg => ({ ...cfg, file: document.getElementById(cfg.inputId).files[0] }));
@@ -123,9 +131,9 @@ async function fazerBackupEProcessar() {
     }
 
     if (htmlResultadoFinal) {
-        const encontrados = analisarHTML(htmlResultadoFinal, campeonato, dataCorrida, true);
-        const lancados = await lancarAutomatico(encontrados, campeonato, dataCorrida);
-        status.innerHTML = `✅ Arquivos salvos. ${lancados} resultado(s) lançado(s) automaticamente.`;
+        IMPORTACAO_PREVIA = analisarHTML(htmlResultadoFinal, campeonato, dataCorrida, true);
+        status.innerHTML = `✅ Arquivos salvos. Revise os pilotos abaixo e confirme a importação.`;
+        document.getElementById("btnConfirmarImportacao").style.display = "block";
     } else {
         status.innerHTML = "✅ Arquivos salvos no Firebase!";
     }
@@ -163,20 +171,65 @@ function analisarHTML(htmlText, campeonato = "", dataCorrida = "", auto = false)
             if (pilotoId && row.innerText.includes(pilotoId)) {
                 const tds = row.querySelectorAll("td");
                 const pos = tds.length ? tds[0].innerText.trim() : "";
-                encontrados.push({ nome: p.nome, pos: pos, id: pilotoId });
+                encontrados.push({ nome: p.nome, pos: pos, id_piloto: pilotoId });
             }
         });
+    });
+    if (!encontrados.length) {
+        rows.forEach(row => {
+            const tds = row.querySelectorAll("td");
+            if (tds.length < 2) return;
+            const pos = (tds[0].innerText || "").trim();
+            const nome = (tds[1].innerText || "").trim();
+            if (/^\d+$/.test(pos) && nome) encontrados.push({ nome, pos, id_piloto: "" });
+        });
+    }
+    encontrados = encontrados.filter((r, i, arr) => arr.findIndex(x => x.nome === r.nome && x.pos === r.pos) === i);
+    encontrados = encontrados.map(item => {
+        const existente = DB.pilotos.find(p => String(getPilotoCampo(p, "id_piloto", "id") || "").trim() === String(item.id_piloto || "").trim() && item.id_piloto) ||
+            DB.pilotos.find(p => (getPilotoCampo(p, "nome") || "").toUpperCase() === (item.nome || "").toUpperCase());
+        const vinculado = existente ? vinculosPiloto(existente).includes(campeonato) : false;
+        const pontos = pontuacaoPorPosicao(campeonato, item.pos);
+        return { ...item, checked: vinculado, status: existente ? (vinculado ? "Cadastrado e vinculado" : "Cadastrado (vínculo será atualizado)") : "Será criado automaticamente", pontos };
     });
 
     let h = "<h3>Pilotos Identificados no Resultado Final:</h3>";
     if (!encontrados.length) h += "<p class='muted'>Nenhum piloto do campeonato foi identificado automaticamente.</p>";
-    encontrados.forEach(i => {
-        h += `<div class="piloto-card"><span><strong>${htmlEscape(i.nome)}</strong> (P${htmlEscape(i.pos)})</span><button onclick="preencher('${htmlEscape(i.nome)}','${htmlEscape(i.pos)}','${htmlEscape(campeonato)}','${htmlEscape(dataCorrida)}')" style="width:auto; padding:5px 15px; margin:0; font-size:12px;">Lançar</button></div>`;
+    h += `<table><tr><th></th><th>Posição</th><th>ID</th><th>Piloto</th><th>Status</th><th>Pontos</th></tr>`;
+    encontrados.forEach((i, idx) => {
+        h += `<tr><td><input type="checkbox" id="imp_chk_${idx}" ${i.checked ? "checked" : ""}></td><td>${htmlEscape(i.pos)}</td><td>${htmlEscape(i.id_piloto || "-")}</td><td>${htmlEscape(i.nome)}</td><td>${htmlEscape(i.status)}</td><td>${i.pontos}${i.pontos === 0 ? ' <small class="muted">Pontuação não cadastrada</small>' : ''}</td></tr>`;
     });
+    h += "</table>";
 
     if (auto) h += "<p class='hint'>Somente pilotos vinculados ao campeonato foram considerados.</p>";
     document.getElementById("previewImportacao").innerHTML = h;
     return encontrados;
+}
+
+async function confirmarImportacao() {
+    const campeonato = document.getElementById("imp_camp").value;
+    const etapa = document.getElementById("imp_etapa").value;
+    const data = document.getElementById("imp_data").value;
+    const selecionados = IMPORTACAO_PREVIA.filter((_, idx) => document.getElementById(`imp_chk_${idx}`)?.checked);
+    if (!selecionados.length) return alert("Selecione ao menos um piloto.");
+    const duplicadoEtapa = DB.resultados.some(r => (r.campeonato || r.Campeonato) === campeonato && String(r.etapa || r.Etapa) === String(etapa) && formatarDataISO(r.data || r.Data) === data);
+    if (duplicadoEtapa) return alert("Já existem resultados para este campeonato + etapa + data.");
+
+    for (const p of selecionados) {
+        const porId = p.id_piloto ? DB.pilotos.find(x => String(getPilotoCampo(x, "id_piloto", "id")) === String(p.id_piloto)) : null;
+        const porNome = DB.pilotos.find(x => (getPilotoCampo(x, "nome") || "").toUpperCase() === (p.nome || "").toUpperCase());
+        const existente = porId || porNome;
+        if (!existente) {
+            await enviarGestao({ tipo: "pilotos", acao: "criar", nome: p.nome, id_piloto: p.id_piloto || "", id: p.id_piloto || "", apelido: "", campeonatos: campeonato, vinculos: [campeonato] });
+        } else {
+            const vinc = new Set(vinculosPiloto(existente));
+            vinc.add(campeonato);
+            await enviarGestao({ tipo: "pilotos", acao: "editar", nomeAtual: getPilotoCampo(existente, "nome"), nome: getPilotoCampo(existente, "nome"), id_piloto: getPilotoCampo(existente, "id_piloto", "id"), id: getPilotoCampo(existente, "id_piloto", "id"), apelido: getPilotoCampo(existente, "apelido"), campeonatos: Array.from(vinc).join(", "), vinculos: Array.from(vinc) });
+        }
+        await enviarResultado({ tipo: "resultados", campeonato, etapa, piloto: p.nome, posicao: p.pos, pontos: p.pontos, data });
+    }
+    alert(`✅ Importação concluída com ${selecionados.length} piloto(s).`);
+    document.getElementById("btnConfirmarImportacao").style.display = "none";
 }
 
 function abrirGestao() {
@@ -214,6 +267,7 @@ function renderGestao() {
         const camps = vinculosPiloto(p).join(", ");
         return `<div class='piloto-card'><span><strong>${htmlEscape(nome)}</strong><br><small class='muted'>id_piloto: ${htmlEscape(idPiloto || "-")} • apelido: ${htmlEscape(apelido || "-")} • campeonatos: ${htmlEscape(camps || "-")}</small></span><span class="actions"><button class='btn-icon' title="Editar" aria-label="Editar" onclick="editarPiloto(${idx})">✏️</button><button class='btn-icon' title="Excluir" aria-label="Excluir" onclick="excluirPiloto(${idx})">🗑️</button></span></div>`;
     }).join("") || "<p class='muted'>Nenhum piloto cadastrado.</p>";
+    renderPontuacoesCampeonato(document.getElementById("camp_nome").value || DB.campeonatos[0]?.nome || "");
 }
 
 async function enviarGestao(payload) {
@@ -231,10 +285,42 @@ async function salvarCampeonato() {
     const payload = { tipo: "campeonatos", acao: campeonatoEditando === null ? "criar" : "editar", nome, descrição: document.getElementById("camp_descricao").value.trim(), "data de inicio": document.getElementById("camp_data_inicio").value, "data de fim": document.getElementById("camp_data_fim").value };
     if (campeonatoEditando !== null) payload.nomeAtual = DB.campeonatos[campeonatoEditando].nome;
     await enviarGestao(payload);
+    await garantirPontuacaoPadrao(nome);
     campeonatoEditando = null;
 }
-function editarCampeonato(idx) { const c = DB.campeonatos[idx]; if (!c) return; campeonatoEditando = idx; document.getElementById("camp_nome").value = c.nome || ""; document.getElementById("camp_descricao").value = c["descrição"] || c.descrição || ""; document.getElementById("camp_data_inicio").value = formatarDataISO(c["data de inicio"] || ""); document.getElementById("camp_data_fim").value = formatarDataISO(c["data de fim"] || ""); trocarAbaGestao("campeonatos"); }
+function editarCampeonato(idx) { const c = DB.campeonatos[idx]; if (!c) return; campeonatoEditando = idx; document.getElementById("camp_nome").value = c.nome || ""; document.getElementById("camp_descricao").value = c["descrição"] || c.descrição || ""; document.getElementById("camp_data_inicio").value = formatarDataISO(c["data de inicio"] || ""); document.getElementById("camp_data_fim").value = formatarDataISO(c["data de fim"] || ""); trocarAbaGestao("campeonatos"); renderPontuacoesCampeonato(c.nome || ""); }
 function excluirCampeonato(idx) { const c = DB.campeonatos[idx]; if (c && confirm(`Excluir campeonato ${c.nome}?`)) enviarGestao({ tipo: "campeonatos", acao: "excluir", nome: c.nome }); }
+async function garantirPontuacaoPadrao(campeonato) {
+    const existentes = (DB.pontuacoes || []).filter(p => p.campeonato === campeonato);
+    if (existentes.length) return;
+    for (const [posicao, pontos] of Object.entries(PONTOS_PADRAO)) await enviarGestao({ tipo: "pontuacoes", acao: "criar", campeonato, posicao: Number(posicao), pontos });
+}
+function renderPontuacoesCampeonato(campeonato) {
+    const linhas = (DB.pontuacoes || []).filter(p => p.campeonato === campeonato).sort((a, b) => parseInt(a.posicao) - parseInt(b.posicao));
+    document.getElementById("listaPontuacoes").innerHTML = linhas.map((p, idx) => `<div class='piloto-card'><span>Posição ${p.posicao} = ${p.pontos} pontos</span><span class="actions"><button class='btn-icon' title="Editar" aria-label="Editar" onclick="editarPontuacao('${campeonato}',${idx})">✏️</button><button class='btn-icon' title="Excluir" aria-label="Excluir" onclick="excluirPontuacao('${campeonato}',${idx})">🗑️</button></span></div>`).join("") || "<p class='muted'>Sem pontuação cadastrada.</p>";
+}
+async function adicionarPontuacaoLinha() {
+    const campeonato = document.getElementById("camp_nome").value.trim();
+    const posicao = parseInt(document.getElementById("pont_posicao").value);
+    const pontos = parseInt(document.getElementById("pont_pontos").value);
+    if (!campeonato || !posicao || Number.isNaN(pontos)) return alert("Preencha campeonato, posição e pontos.");
+    const existente = (DB.pontuacoes || []).find(p => p.campeonato === campeonato && parseInt(p.posicao) === posicao);
+    await enviarGestao({ tipo: "pontuacoes", acao: existente ? "editar" : "criar", campeonato, posicao, pontos });
+}
+async function editarPontuacao(campeonato, idx) {
+    const linhas = (DB.pontuacoes || []).filter(p => p.campeonato === campeonato).sort((a, b) => parseInt(a.posicao) - parseInt(b.posicao));
+    const item = linhas[idx];
+    if (!item) return;
+    const novo = prompt(`Pontos para posição ${item.posicao}:`, item.pontos);
+    if (novo === null) return;
+    await enviarGestao({ tipo: "pontuacoes", acao: "editar", campeonato, posicao: item.posicao, pontos: parseInt(novo) || 0 });
+}
+async function excluirPontuacao(campeonato, idx) {
+    const linhas = (DB.pontuacoes || []).filter(p => p.campeonato === campeonato).sort((a, b) => parseInt(a.posicao) - parseInt(b.posicao));
+    const item = linhas[idx];
+    if (!item || !confirm(`Excluir pontuação da posição ${item.posicao}?`)) return;
+    await enviarGestao({ tipo: "pontuacoes", acao: "excluir", campeonato, posicao: item.posicao });
+}
 
 async function salvarPiloto() {
     const nome = document.getElementById("piloto_nome").value.trim();
@@ -360,6 +446,7 @@ function popularFiltros() {
     document.getElementById("filtro_rank_camp").innerHTML = '<option value="">📊 Ranking Geral</option>' + opts;
     document.getElementById("sel_camp").innerHTML = '<option value="">Selecione o Campeonato</option>' + opts;
     document.getElementById("imp_camp").innerHTML = '<option value="">Selecione o Campeonato</option>' + opts;
+    document.getElementById("imp_etapa").value = "";
     document.getElementById("imp_data").value = hojeISO();
     document.getElementById("res_data").value = hojeISO();
     const pOpts = DB.pilotos.map(p => `<option value="${htmlEscape(p.nome)}">${htmlEscape(p.nome)}</option>`).sort().join("");
