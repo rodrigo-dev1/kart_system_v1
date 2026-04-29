@@ -15,6 +15,9 @@ const URL_API = "https://script.google.com/macros/s/AKfycbwWIL3hrPq6w6pCjCS5-ZYw
 
 let DB = { campeonatos: [], pilotos: [], resultados: [] };
 let HISTORICO_CACHE = [];
+let abaGestaoAtual = "campeonatos";
+let campeonatoEditando = null;
+let pilotoEditando = null;
 
 const MEUS_PILOTOS = [
     { id: "41938", nome: "LEONARDO LEMES" },
@@ -181,24 +184,73 @@ function abrirGestao() {
     renderGestao();
 }
 
+function getPilotoCampo(p, ...keys) {
+    const achado = keys.find(k => p[k] !== undefined && p[k] !== null);
+    return achado ? p[achado] : "";
+}
+
+function vinculosPiloto(p) {
+    const bruto = getPilotoCampo(p, "campeonatos", "vinculos");
+    if (Array.isArray(bruto)) return bruto;
+    return String(bruto || "").split(",").map(v => v.trim()).filter(Boolean);
+}
+
+function trocarAbaGestao(aba) {
+    abaGestaoAtual = aba;
+    document.getElementById("secCampeonatos").style.display = aba === "campeonatos" ? "block" : "none";
+    document.getElementById("secPilotos").style.display = aba === "pilotos" ? "block" : "none";
+    document.getElementById("tabCampeonatos").classList.toggle("active-tab", aba === "campeonatos");
+    document.getElementById("tabPilotos").classList.toggle("active-tab", aba === "pilotos");
+}
+
 function renderGestao() {
-    document.getElementById("listaCampeonatos").innerHTML = DB.campeonatos.map(c => `<div class='piloto-card'><span>${htmlEscape(c.nome)}</span><span><button class='btn-view' onclick="editarCampeonato('${htmlEscape(c.nome)}')">Editar</button> <button class='btn-view' onclick="excluirCampeonato('${htmlEscape(c.nome)}')">Excluir</button></span></div>`).join("");
-    document.getElementById("listaPilotos").innerHTML = DB.pilotos.map(p => `<div class='piloto-card'><span>${htmlEscape(p.nome)}</span><span><button class='btn-view' onclick="editarPiloto('${htmlEscape(p.nome)}')">Editar</button> <button class='btn-view' onclick="excluirPiloto('${htmlEscape(p.nome)}')">Excluir</button></span></div>`).join("");
+    trocarAbaGestao(abaGestaoAtual);
+    document.getElementById("piloto_campeonatos").innerHTML = '<option value="">Selecione o campeonato</option>' + DB.campeonatos.map(c => `<option value="${htmlEscape(c.nome)}">${htmlEscape(c.nome)}</option>`).join("");
+    document.getElementById("listaCampeonatos").innerHTML = DB.campeonatos.map((c, idx) => `<div class='piloto-card'><span><strong>${htmlEscape(c.nome || "")}</strong><br><small class='muted'>${htmlEscape(c["descrição"] || c.descrição || "")} • ${htmlEscape(c["data de inicio"] || "")} até ${htmlEscape(c["data de fim"] || "")}</small></span><span class="actions"><button class='btn-icon' title="Editar" aria-label="Editar" onclick="editarCampeonato(${idx})">✏️</button><button class='btn-icon' title="Excluir" aria-label="Excluir" onclick="excluirCampeonato(${idx})">🗑️</button></span></div>`).join("") || "<p class='muted'>Nenhum campeonato cadastrado.</p>";
+    document.getElementById("listaPilotos").innerHTML = DB.pilotos.map((p, idx) => {
+        const nome = getPilotoCampo(p, "nome");
+        const idPiloto = getPilotoCampo(p, "id_piloto", "id");
+        const apelido = getPilotoCampo(p, "apelido");
+        const camps = vinculosPiloto(p).join(", ");
+        return `<div class='piloto-card'><span><strong>${htmlEscape(nome)}</strong><br><small class='muted'>id_piloto: ${htmlEscape(idPiloto || "-")} • apelido: ${htmlEscape(apelido || "-")} • campeonatos: ${htmlEscape(camps || "-")}</small></span><span class="actions"><button class='btn-icon' title="Editar" aria-label="Editar" onclick="editarPiloto(${idx})">✏️</button><button class='btn-icon' title="Excluir" aria-label="Excluir" onclick="excluirPiloto(${idx})">🗑️</button></span></div>`;
+    }).join("") || "<p class='muted'>Nenhum piloto cadastrado.</p>";
 }
 
 async function enviarGestao(payload) {
     const r = await fetch(URL_API, { method: "POST", body: JSON.stringify(payload) });
-    alert(await r.text());
+    const msg = await r.text();
+    const target = payload.tipo === "campeonatos" ? "feedbackCampeonato" : "feedbackPiloto";
+    document.getElementById(target).textContent = msg;
     await fetchData();
     renderGestao();
 }
 
-function novoCampeonato() { const nome = prompt("Nome do campeonato:"); if (nome) enviarGestao({ tipo: "campeonatos", acao: "criar", nome }); }
-function editarCampeonato(nomeAtual) { const nome = prompt("Novo nome:", nomeAtual); if (nome && nome !== nomeAtual) enviarGestao({ tipo: "campeonatos", acao: "editar", nomeAtual, nome }); }
-function excluirCampeonato(nome) { if (confirm(`Excluir campeonato ${nome}?`)) enviarGestao({ tipo: "campeonatos", acao: "excluir", nome }); }
-function novoPiloto() { const nome = prompt("Nome do piloto:"); if (!nome) return; const id = prompt("ID do piloto no sistema de corrida:") || ""; const vinculos = prompt("Campeonatos (separados por vírgula):", "") || ""; enviarGestao({ tipo: "pilotos", acao: "criar", nome, id, vinculos: vinculos.split(",").map(v => v.trim()).filter(Boolean) }); }
-function editarPiloto(nomeAtual) { const p = DB.pilotos.find(x => x.nome === nomeAtual); if (!p) return; const nome = prompt("Novo nome:", p.nome) || p.nome; const id = prompt("Novo ID:", p.id || "") || ""; const vinculosAtual = (p.vinculos || []).join(", "); const vinculos = prompt("Campeonatos (separados por vírgula):", vinculosAtual) || vinculosAtual; enviarGestao({ tipo: "pilotos", acao: "editar", nomeAtual, nome, id, vinculos: vinculos.split(",").map(v => v.trim()).filter(Boolean) }); }
-function excluirPiloto(nome) { if (confirm(`Excluir piloto ${nome}?`)) enviarGestao({ tipo: "pilotos", acao: "excluir", nome }); }
+async function salvarCampeonato() {
+    const nome = document.getElementById("camp_nome").value.trim();
+    if (!nome) return (document.getElementById("feedbackCampeonato").innerHTML = '<span class="error">Nome do campeonato é obrigatório.</span>');
+    const payload = { tipo: "campeonatos", acao: campeonatoEditando === null ? "criar" : "editar", nome, descrição: document.getElementById("camp_descricao").value.trim(), "data de inicio": document.getElementById("camp_data_inicio").value, "data de fim": document.getElementById("camp_data_fim").value };
+    if (campeonatoEditando !== null) payload.nomeAtual = DB.campeonatos[campeonatoEditando].nome;
+    await enviarGestao(payload);
+    campeonatoEditando = null;
+}
+function editarCampeonato(idx) { const c = DB.campeonatos[idx]; if (!c) return; campeonatoEditando = idx; document.getElementById("camp_nome").value = c.nome || ""; document.getElementById("camp_descricao").value = c["descrição"] || c.descrição || ""; document.getElementById("camp_data_inicio").value = formatarDataISO(c["data de inicio"] || ""); document.getElementById("camp_data_fim").value = formatarDataISO(c["data de fim"] || ""); trocarAbaGestao("campeonatos"); }
+function excluirCampeonato(idx) { const c = DB.campeonatos[idx]; if (c && confirm(`Excluir campeonato ${c.nome}?`)) enviarGestao({ tipo: "campeonatos", acao: "excluir", nome: c.nome }); }
+
+async function salvarPiloto() {
+    const nome = document.getElementById("piloto_nome").value.trim();
+    const id_piloto = document.getElementById("piloto_id").value.trim();
+    const campeonatos = document.getElementById("piloto_campeonatos").value.trim();
+    if (!nome) return (document.getElementById("feedbackPiloto").innerHTML = '<span class="error">Nome do piloto é obrigatório.</span>');
+    if (pilotoEditando === null && !id_piloto) return (document.getElementById("feedbackPiloto").innerHTML = '<span class="error">id_piloto é obrigatório para novos cadastros.</span>');
+    const duplicado = DB.pilotos.some((p, idx) => idx !== pilotoEditando && String(getPilotoCampo(p, "id_piloto", "id") || "").trim() === id_piloto && id_piloto);
+    if (duplicado) return (document.getElementById("feedbackPiloto").innerHTML = '<span class="error">Já existe piloto com este id_piloto.</span>');
+    const payload = { tipo: "pilotos", acao: pilotoEditando === null ? "criar" : "editar", nome, id_piloto, id: id_piloto, apelido: document.getElementById("piloto_apelido").value.trim(), campeonatos, vinculos: campeonatos ? [campeonatos] : [] };
+    if (pilotoEditando !== null) payload.nomeAtual = getPilotoCampo(DB.pilotos[pilotoEditando], "nome");
+    await enviarGestao(payload);
+    pilotoEditando = null;
+}
+function editarPiloto(idx) { const p = DB.pilotos[idx]; if (!p) return; pilotoEditando = idx; document.getElementById("piloto_nome").value = getPilotoCampo(p, "nome"); document.getElementById("piloto_id").value = getPilotoCampo(p, "id_piloto", "id"); document.getElementById("piloto_apelido").value = getPilotoCampo(p, "apelido"); document.getElementById("piloto_campeonatos").value = vinculosPiloto(p)[0] || ""; trocarAbaGestao("pilotos"); }
+function excluirPiloto(idx) { const p = DB.pilotos[idx]; const nome = p ? getPilotoCampo(p, "nome") : ""; if (nome && confirm(`Excluir piloto ${nome}?`)) enviarGestao({ tipo: "pilotos", acao: "excluir", nome }); }
 
 function preencher(nome, pos, campeonato = "", dataCorrida = "") { show("lançar"); const selPiloto = document.getElementById("sel_piloto"); if (!Array.from(selPiloto.options).some(opt => opt.value === nome)) { const opt = document.createElement("option"); opt.value = nome; opt.text = nome; selPiloto.add(opt); } if (campeonato) { document.getElementById("sel_camp").value = campeonato; filtrarPilotosPorCamp(); if (!Array.from(selPiloto.options).some(opt => opt.value === nome)) { const opt = document.createElement("option"); opt.value = nome; opt.text = nome; selPiloto.add(opt); } } selPiloto.value = nome; document.getElementById("res_pos").value = parseInt(pos) || ""; if (dataCorrida) document.getElementById("res_data").value = dataCorrida; document.getElementById("res_etapa").focus(); }
 
