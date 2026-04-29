@@ -192,35 +192,6 @@ function novoPiloto() { const nome = prompt("Nome do piloto:"); if (!nome) retur
 function editarPiloto(nomeAtual) { const p = DB.pilotos.find(x => x.nome === nomeAtual); if (!p) return; const nome = prompt("Novo nome:", p.nome) || p.nome; const id = prompt("Novo ID:", p.id || "") || ""; const vinculosAtual = (p.vinculos || []).join(", "); const vinculos = prompt("Campeonatos (separados por vírgula):", vinculosAtual) || vinculosAtual; enviarGestao({ tipo: "pilotos", acao: "editar", nomeAtual, nome, id, vinculos: vinculos.split(",").map(v => v.trim()).filter(Boolean) }); }
 function excluirPiloto(nome) { if (confirm(`Excluir piloto ${nome}?`)) enviarGestao({ tipo: "pilotos", acao: "excluir", nome }); }
 
-function abrirHistoricoPiloto(nome) {
-    const f = document.getElementById("filtro_rank_camp").value;
-    const hist = DB.resultados.filter(r => (r.piloto || r.Piloto) === nome && (!f || (r.campeonato || r.Campeonato) === f)).sort((a, b) => String(a.data || a.Data).localeCompare(String(b.data || b.Data)));
-    const labels = hist.map((_, i) => i + 1);
-    const posicoes = hist.map(r => parseInt(r.posicao || r.Posicao) || 0);
-
-    const modal = document.getElementById("historicoPiloto");
-    modal.style.display = "block";
-    document.getElementById("histTitulo").innerText = `Histórico de ${nome}`;
-
-    const canvas = document.getElementById("histCanvas");
-    const ctx = canvas.getContext("2d");
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-    if (!posicoes.length) return;
-    const max = Math.max(...posicoes, 1);
-    ctx.strokeStyle = "#ff4b4b";
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    posicoes.forEach((p, i) => {
-        const x = 20 + (i * (canvas.width - 40) / Math.max(labels.length - 1, 1));
-        const y = 20 + ((p - 1) * (canvas.height - 40) / Math.max(max - 1, 1));
-        if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
-        ctx.fillText(String(p), x - 3, y - 6);
-    });
-    ctx.stroke();
-}
-function fecharHistoricoPiloto() { document.getElementById("historicoPiloto").style.display = "none"; }
-
 function preencher(nome, pos, campeonato = "", dataCorrida = "") { show("lançar"); const selPiloto = document.getElementById("sel_piloto"); if (!Array.from(selPiloto.options).some(opt => opt.value === nome)) { const opt = document.createElement("option"); opt.value = nome; opt.text = nome; selPiloto.add(opt); } if (campeonato) { document.getElementById("sel_camp").value = campeonato; filtrarPilotosPorCamp(); if (!Array.from(selPiloto.options).some(opt => opt.value === nome)) { const opt = document.createElement("option"); opt.value = nome; opt.text = nome; selPiloto.add(opt); } } selPiloto.value = nome; document.getElementById("res_pos").value = parseInt(pos) || ""; if (dataCorrida) document.getElementById("res_data").value = dataCorrida; document.getElementById("res_etapa").focus(); }
 
 function carregarHistorico() { /* unchanged below */
@@ -234,17 +205,92 @@ function carregarHistorico() { /* unchanged below */
 function renderArquivosDoDia(dia) { const detalhe = document.getElementById("arquivosDoDia"); const ordem = { volta_a_volta: 1, classificacao: 2, resultado_final: 3 }; const itens = HISTORICO_CACHE.filter(item => extrairDataItem(item) === dia).sort((a, b) => (a.campeonato || "").localeCompare(b.campeonato || "") || (ordem[a.tipoArquivo] || 9) - (ordem[b.tipoArquivo] || 9)); let html = `<h3>📅 Arquivos de ${formatarDataBR(dia)}</h3>`; itens.forEach(item => { html += `<div class="arquivo-card"><div><strong>${htmlEscape(item.tipoLabel || item.tipoArquivo || "Arquivo")}</strong><br><small>${htmlEscape(item.campeonato || "Sem campeonato")} • ${htmlEscape(item.nomeArquivo || "-")}</small></div><button class="btn-view" onclick="verConteudo('${item.key}')">VER</button></div>`; }); detalhe.innerHTML = html; }
 function verConteudo(key) { database.ref("backups/" + key).once("value", s => { const item = s.val(); const win = window.open("", "_blank"); if (!item) return win.document.write("Arquivo não encontrado."); const mime = item.mimeType || ""; const dataUrl = item.dataUrl || ""; if (mime.includes("pdf") && dataUrl) return win.document.write(`<iframe src="${dataUrl}" style="width:100%;height:100vh;border:0;"></iframe>`); if (item.conteudo) return win.document.write(item.conteudo); if (dataUrl) return win.document.write(`<iframe src="${dataUrl}" style="width:100%;height:100vh;border:0;"></iframe>`); win.document.write("Não foi possível abrir o arquivo."); }); }
 
+
+function obterHistoricoPiloto(nome, campeonatoFiltro = "") {
+    return DB.resultados
+        .filter(r => (r.piloto || r.Piloto) === nome && (!campeonatoFiltro || (r.campeonato || r.Campeonato) === campeonatoFiltro))
+        .map(r => ({
+            data: r.data || r.Data || "",
+            campeonato: r.campeonato || r.Campeonato || "-",
+            etapa: r.etapa || r.Etapa || "-",
+            posicao: parseInt(r.posicao || r.Posicao) || 0,
+            pontos: parseInt(r.pontos || r.Pontos) || 0
+        }))
+        .sort((a, b) => String(a.data).localeCompare(String(b.data)));
+}
+
+function gerarGraficoHistoricoSVG(hist) {
+    if (!hist.length) return "<p class='muted'>Sem histórico para exibir.</p>";
+
+    const w = 620, h = 220, ml = 36, mr = 12, mt = 16, mb = 26;
+    const maxPos = Math.max(...hist.map(h => h.posicao || 1), 1);
+    const stepX = (w - ml - mr) / Math.max(hist.length - 1, 1);
+    const stepY = (h - mt - mb) / Math.max(maxPos - 1, 1);
+
+    const y = (pos) => mt + ((pos - 1) * stepY);
+    const x = (i) => ml + (i * stepX);
+
+    const points = hist.map((item, i) => `${x(i)},${y(item.posicao || 1)}`).join(" ");
+
+    let linhas = "";
+    for (let p = 1; p <= maxPos; p++) {
+        linhas += `<line x1="${ml}" y1="${y(p)}" x2="${w - mr}" y2="${y(p)}" stroke="#2e3542" stroke-width="1"/>`;
+        linhas += `<text x="6" y="${y(p)+4}" fill="#889" font-size="10">P${p}</text>`;
+    }
+
+    const labels = hist.map((item, i) => `<text x="${x(i)}" y="${h - 8}" fill="#999" font-size="10" text-anchor="middle">${(item.data || '-').slice(5)}</text>`).join('');
+    const pontos = hist.map((item, i) => `<circle cx="${x(i)}" cy="${y(item.posicao || 1)}" r="3.5" fill="#ff4b4b"/><title>${item.data} • P${item.posicao}</title>`).join('');
+
+    return `<svg viewBox="0 0 ${w} ${h}" style="width:100%; background:#141923; border-radius:8px;">${linhas}<polyline points="${points}" fill="none" stroke="#ff4b4b" stroke-width="2.5" stroke-linecap="round"/>${pontos}${labels}</svg>`;
+}
+
+function toggleHistoricoLinha(nome, idx) {
+    const detalheId = `hist_row_${idx}`;
+    const row = document.getElementById(detalheId);
+    const aberto = row.dataset.open === "1";
+
+    document.querySelectorAll("tr.hist-detalhe").forEach(el => {
+        el.style.display = "none";
+        el.dataset.open = "0";
+    });
+
+    if (aberto) return;
+
+    const filtroCamp = document.getElementById("filtro_rank_camp").value;
+    const hist = obterHistoricoPiloto(nome, filtroCamp);
+    const grafico = gerarGraficoHistoricoSVG(hist);
+
+    const tabela = hist.length ? `
+        <table style="margin-top:10px; font-size:12px;">
+            <tr><th>Data</th><th>Camp.</th><th>Etapa</th><th>Posição</th><th>Pontos</th></tr>
+            ${hist.map(item => `<tr><td>${htmlEscape(formatarDataBR(item.data))}</td><td>${htmlEscape(item.campeonato)}</td><td>${htmlEscape(item.etapa)}</td><td>${item.posicao ? `P${item.posicao}` : "-"}</td><td>${item.pontos}</td></tr>`).join('')}
+        </table>` : "<p class='muted'>Sem corridas registradas.</p>";
+
+    row.innerHTML = `<td colspan="3"><div style="padding:8px 4px;"><div class='hint' style='margin-bottom:6px;'>Evolução de posições por corrida (linha do tempo)</div>${grafico}${tabela}</div></td>`;
+    row.style.display = "table-row";
+    row.dataset.open = "1";
+}
+function renderArquivosDoDia(dia) { const detalhe = document.getElementById("arquivosDoDia"); const ordem = { volta_a_volta: 1, classificacao: 2, resultado_final: 3 }; const itens = HISTORICO_CACHE.filter(item => extrairDataItem(item) === dia).sort((a, b) => (a.campeonato || "").localeCompare(b.campeonato || "") || (ordem[a.tipoArquivo] || 9) - (ordem[b.tipoArquivo] || 9)); let html = `<h3>📅 Arquivos de ${formatarDataBR(dia)}</h3>`; itens.forEach(item => { html += `<div class="arquivo-card"><div><strong>${htmlEscape(item.tipoLabel || item.tipoArquivo || "Arquivo")}</strong><br><small>${htmlEscape(item.campeonato || "Sem campeonato")} • ${htmlEscape(item.nomeArquivo || "-")}</small></div><button class="btn-view" onclick="verConteudo('${item.key}')">VER</button></div>`; }); detalhe.innerHTML = html; }
+function verConteudo(key) { database.ref("backups/" + key).once("value", s => { const item = s.val(); const win = window.open("", "_blank"); if (!item) return win.document.write("Arquivo não encontrado."); const mime = item.mimeType || ""; const dataUrl = item.dataUrl || ""; if (mime.includes("pdf") && dataUrl) return win.document.write(`<iframe src="${dataUrl}" style="width:100%;height:100vh;border:0;"></iframe>`); if (item.conteudo) return win.document.write(item.conteudo); if (dataUrl) return win.document.write(`<iframe src="${dataUrl}" style="width:100%;height:100vh;border:0;"></iframe>`); win.document.write("Não foi possível abrir o arquivo."); }); }
+
 function renderRanking() {
     const f = document.getElementById("filtro_rank_camp").value;
     const res = f ? DB.resultados.filter(r => (r.campeonato || r.Campeonato) === f) : DB.resultados;
     const soma = {};
-    res.forEach(r => { const n = r.piloto || r.Piloto; soma[n] = (soma[n] || 0) + (parseInt(r.pontos || r.Pontos) || 0); });
+    res.forEach(r => {
+        const n = r.piloto || r.Piloto;
+        soma[n] = (soma[n] || 0) + (parseInt(r.pontos || r.Pontos) || 0);
+    });
+
     const sorted = Object.entries(soma).sort((a, b) => b[1] - a[1]);
     const total = sorted.reduce((acc, [, pts]) => acc + pts, 0);
-    let h = "<table><tr><th>Pos</th><th>Piloto</th><th>Pts</th><th>%</th></tr>";
+
+    let h = "<table><tr><th>Pos</th><th>Piloto</th><th>Pts</th></tr>";
+
     sorted.forEach((p, i) => {
         const perc = total ? ((p[1] / total) * 100).toFixed(1) : "0.0";
-        h += `<tr><td>${i + 1}º</td><td><button class='btn-view' onclick="abrirHistoricoPiloto('${htmlEscape(p[0])}')">${htmlEscape(p[0])}</button></td><td>${p[1]}</td><td><small>${perc}%</small></td></tr>`;
+        h += `<tr onclick="toggleHistoricoLinha('${htmlEscape(p[0])}', ${i})" style="cursor:pointer;"><td>${i + 1}º</td><td>${htmlEscape(p[0])}</td><td>${p[1]} <small style='color:#aaa; font-size:11px;'>(${perc}%)</small></td></tr>`;
+        h += `<tr id="hist_row_${i}" class="hist-detalhe" data-open="0" style="display:none;"></tr>`;
     });
     document.getElementById("rankingContent").innerHTML = h + "</table>";
 }
