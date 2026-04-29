@@ -91,7 +91,9 @@ function pilotosDoCampeonato(campeonato) {
 }
 function pontuacaoPorPosicao(campeonato, posicao) {
     const base = (DB.pontuacoes || []).find(p => p.campeonato === campeonato && parseInt(p.posicao) === parseInt(posicao));
-    return parseInt(base?.pontos) || 0;
+    if (base && !Number.isNaN(parseInt(base.pontos))) return { pontos: parseInt(base.pontos), origem: "Pontuação cadastrada" };
+    if (PONTOS_PADRAO[posicao]) return { pontos: PONTOS_PADRAO[posicao], origem: "Pontuação padrão" };
+    return { pontos: 0, origem: "Sem pontuação" };
 }
 
 async function fazerBackupEProcessar() {
@@ -166,44 +168,88 @@ function analisarHTML(htmlText, campeonato = "", dataCorrida = "", auto = false)
 
     let encontrados = [];
     rows.forEach(row => {
-        participantes.forEach(p => {
-            const pilotoId = String(p.id || "");
-            if (pilotoId && row.innerText.includes(pilotoId)) {
-                const tds = row.querySelectorAll("td");
-                const pos = tds.length ? tds[0].innerText.trim() : "";
-                encontrados.push({ nome: p.nome, pos: pos, id_piloto: pilotoId });
-            }
-        });
+        const tds = row.querySelectorAll("td");
+        if (!tds.length) return;
+        const textos = Array.from(tds).map(td => (td.innerText || "").trim()).filter(Boolean);
+        const pos = textos.find(t => /^\d+$/.test(t));
+        if (!pos) return;
+        const possivelId = textos.find(t => /^\d{3,}$/.test(t) && t !== pos) || "";
+        const nome = textos.find(t => /[a-zA-ZÀ-ÿ]/.test(t) && t !== possivelId) || "";
+        if (!nome) return;
+        encontrados.push({ nome, pos, id_piloto: possivelId });
     });
-    if (!encontrados.length) {
-        rows.forEach(row => {
-            const tds = row.querySelectorAll("td");
-            if (tds.length < 2) return;
-            const pos = (tds[0].innerText || "").trim();
-            const nome = (tds[1].innerText || "").trim();
-            if (/^\d+$/.test(pos) && nome) encontrados.push({ nome, pos, id_piloto: "" });
-        });
-    }
-    encontrados = encontrados.filter((r, i, arr) => arr.findIndex(x => x.nome === r.nome && x.pos === r.pos) === i);
-    encontrados = encontrados.map(item => {
-        const existente = DB.pilotos.find(p => String(getPilotoCampo(p, "id_piloto", "id") || "").trim() === String(item.id_piloto || "").trim() && item.id_piloto) ||
+    encontrados = encontrados.filter((r, i, arr) => arr.findIndex(x => x.nome === r.nome && x.pos === r.pos && String(x.id_piloto) === String(r.id_piloto)) === i);
+    IMPORTACAO_PREVIA = encontrados.map(item => {
+        const porId = DB.pilotos.filter(p => String(getPilotoCampo(p, "id_piloto", "id") || "").trim() === String(item.id_piloto || "").trim() && item.id_piloto);
+        const conflitoId = porId.length > 1;
+        const existente = porId[0] ||
             DB.pilotos.find(p => (getPilotoCampo(p, "nome") || "").toUpperCase() === (item.nome || "").toUpperCase());
         const vinculado = existente ? vinculosPiloto(existente).includes(campeonato) : false;
-        const pontos = pontuacaoPorPosicao(campeonato, item.pos);
-        return { ...item, checked: vinculado, status: existente ? (vinculado ? "Cadastrado e vinculado" : "Cadastrado (vínculo será atualizado)") : "Será criado automaticamente", pontos };
+        return { ...item, checked: vinculado, conflitoId, status: conflitoId ? "ID duplicado/conflito" : (existente ? "Piloto já cadastrado" : "Será cadastrado automaticamente"), posGeral: parseInt(item.pos) || 9999 };
     });
+    recalcularPreviewImportacao(campeonato);
+    return IMPORTACAO_PREVIA;
+}
 
+function recalcularPreviewImportacao(campeonato) {
+    IMPORTACAO_PREVIA = (IMPORTACAO_PREVIA.length ? IMPORTACAO_PREVIA : []).sort((a, b) => (a.posGeral || 9999) - (b.posGeral || 9999));
+    const selecionados = IMPORTACAO_PREVIA.filter(i => i.checked && !i.conflitoId).sort((a, b) => a.posGeral - b.posGeral);
+    const mapaPos = new Map(selecionados.map((p, idx) => [p, idx + 1]));
+    IMPORTACAO_PREVIA.forEach(item => {
+        item.posCampeonato = item.checked && !item.conflitoId ? (mapaPos.get(item) || 0) : 0;
+        const calc = item.posCampeonato ? pontuacaoPorPosicao(campeonato, item.posCampeonato) : { pontos: 0, origem: "-" };
+        item.pontos = calc.pontos;
+        item.origemPontuacao = calc.origem;
+    });
     let h = "<h3>Pilotos Identificados no Resultado Final:</h3>";
-    if (!encontrados.length) h += "<p class='muted'>Nenhum piloto do campeonato foi identificado automaticamente.</p>";
-    h += `<table><tr><th></th><th>Posição</th><th>ID</th><th>Piloto</th><th>Status</th><th>Pontos</th></tr>`;
-    encontrados.forEach((i, idx) => {
-        h += `<tr><td><input type="checkbox" id="imp_chk_${idx}" ${i.checked ? "checked" : ""}></td><td>${htmlEscape(i.pos)}</td><td>${htmlEscape(i.id_piloto || "-")}</td><td>${htmlEscape(i.nome)}</td><td>${htmlEscape(i.status)}</td><td>${i.pontos}${i.pontos === 0 ? ' <small class="muted">Pontuação não cadastrada</small>' : ''}</td></tr>`;
+    if (!IMPORTACAO_PREVIA.length) h += "<p class='muted'>Nenhum piloto identificado no arquivo final.</p>";
+    h += `<table><tr><th></th><th>Pos. geral</th><th>ID</th><th>Piloto</th><th>Status</th><th>Pos. campeonato</th><th>Pontos</th><th>Origem</th></tr>`;
+    IMPORTACAO_PREVIA.forEach((i, idx) => {
+        h += `<tr><td><input type="checkbox" id="imp_chk_${idx}" ${i.checked ? "checked" : ""} onchange="toggleSelecionadoImport(${idx}, '${htmlEscape(campeonato)}')"></td><td>${htmlEscape(i.pos)}</td><td>${htmlEscape(i.id_piloto || "-")}</td><td>${htmlEscape(i.nome)}</td><td>${htmlEscape(i.status)}</td><td>${i.posCampeonato || "-"}</td><td>${i.pontos}</td><td>${htmlEscape(i.origemPontuacao || "-")}</td></tr>`;
     });
     h += "</table>";
 
     if (auto) h += "<p class='hint'>Somente pilotos vinculados ao campeonato foram considerados.</p>";
     document.getElementById("previewImportacao").innerHTML = h;
-    return encontrados;
+}
+
+function toggleSelecionadoImport(idx, campeonato) {
+    IMPORTACAO_PREVIA[idx].checked = !!document.getElementById(`imp_chk_${idx}`)?.checked;
+    recalcularPreviewImportacao(campeonato);
+}
+
+async function confirmarImportacao() {
+    const campeonato = document.getElementById("imp_camp").value;
+    const etapa = document.getElementById("imp_etapa").value;
+    const data = document.getElementById("imp_data").value;
+    const selecionados = IMPORTACAO_PREVIA.filter(i => i.checked && !i.conflitoId).sort((a, b) => a.posGeral - b.posGeral);
+    if (!selecionados.length) return alert("Selecione ao menos um piloto.");
+    const duplicadoEtapa = DB.resultados.some(r => (r.campeonato || r.Campeonato) === campeonato && String(r.etapa || r.Etapa) === String(etapa) && formatarDataISO(r.data || r.Data) === data);
+    if (duplicadoEtapa) return alert("Já existem resultados para este campeonato + etapa + data.");
+
+    const erros = [];
+    for (const p of selecionados) {
+        if (!p.nome) { erros.push("Piloto sem nome não pode ser importado."); continue; }
+        const porId = p.id_piloto ? DB.pilotos.find(x => String(getPilotoCampo(x, "id_piloto", "id")) === String(p.id_piloto)) : null;
+        const porNome = DB.pilotos.find(x => (getPilotoCampo(x, "nome") || "").toUpperCase() === (p.nome || "").toUpperCase());
+        const existente = porId || porNome;
+        try {
+            if (!existente) {
+                await enviarGestao({ tipo: "pilotos", acao: "criar", nome: p.nome, id_piloto: p.id_piloto || "", id: p.id_piloto || "", apelido: "", campeonatos: campeonato, vinculos: [campeonato] });
+            } else {
+                const vinc = new Set(vinculosPiloto(existente));
+                vinc.add(campeonato);
+                await enviarGestao({ tipo: "pilotos", acao: "editar", nomeAtual: getPilotoCampo(existente, "nome"), nome: getPilotoCampo(existente, "nome"), id_piloto: getPilotoCampo(existente, "id_piloto", "id"), id: getPilotoCampo(existente, "id_piloto", "id"), apelido: getPilotoCampo(existente, "apelido"), campeonatos: Array.from(vinc).join(", "), vinculos: Array.from(vinc) });
+            }
+            await enviarResultado({ tipo: "resultados", campeonato, etapa, piloto: p.nome, posicao: p.posCampeonato, pontos: p.pontos, data });
+        } catch (e) {
+            erros.push(`${p.nome}: ${e.message}`);
+        }
+    }
+    if (erros.length) return alert("Falha ao salvar alguns pilotos/resultados:\n" + erros.join("\n"));
+    await fetchData();
+    alert(`✅ Importação concluída com ${selecionados.length} piloto(s).`);
+    document.getElementById("btnConfirmarImportacao").style.display = "none";
 }
 
 async function confirmarImportacao() {
