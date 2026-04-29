@@ -22,7 +22,15 @@
         th, td { padding: 12px; text-align: left; border-bottom: 1px solid #333; }
         th { background: #252a34; color: var(--red); }
         tr:nth-child(even) { background: #252a34; }
-        .btn-view { background: #4CAF50; padding: 5px 10px; font-size: 10px; width: auto; margin: 0; }
+        .btn-view { background: #2b3240; border: 1px solid #3a4252; padding: 5px 10px; font-size: 10px; width: auto; margin: 0; }
+        .btn-icon { width: 34px; height: 34px; margin: 0; padding: 0; display: inline-flex; align-items: center; justify-content: center; background: #2b3240; border: 1px solid #3a4252; border-radius: 8px; font-size: 16px; }
+        .btn-icon:hover { filter: brightness(1.2); }
+        .actions { display: flex; gap: 8px; }
+        .tabs { display: flex; gap: 8px; margin-bottom: 12px; }
+        .tab-btn { background: #252a34; border: 1px solid #3a4252; padding: 10px 12px; width: auto; margin: 0; }
+        .tab-btn.active-tab { background: var(--red); border-color: var(--red); }
+        .feedback { margin-top: 10px; font-size: 13px; color: #9ad99a; }
+        .error { color: #ff9898; }
         .btn-day { background: #252a34; border: 1px solid #444; text-align: left; }
         .piloto-card, .arquivo-card { display: flex; justify-content: space-between; align-items: center; background: #252a34; padding: 10px; border-radius: 8px; margin-bottom: 8px; border-left: 4px solid var(--red); gap: 10px; }
         .arquivo-card small, .muted { color: #aaa; font-size: 11px; }
@@ -57,6 +65,7 @@
         <p class="hint">Selecione o campeonato, a data da corrida e envie os 3 arquivos obrigatórios.</p>
 
         <select id="imp_camp"></select>
+        <input type="number" id="imp_etapa" placeholder="Etapa (obrigatório)" min="1">
         <input type="date" id="imp_data">
 
         <label class="file-label" for="fileVoltaVolta">1) Volta a volta</label>
@@ -71,6 +80,7 @@
         <button onclick="fazerBackupEProcessar()" style="background: #2196F3;">SALVAR OS 3 ARQUIVOS NO FIREBASE</button>
         <div id="statusImport" style="text-align: center; margin-top: 10px; color: #ffeb3b;"></div>
         <div id="previewImportacao" style="margin-top: 15px;"></div>
+        <button id="btnConfirmarImportacao" onclick="confirmarImportacao()" style="display:none;">CONFIRMAR IMPORTAÇÃO</button>
     </div>
 </div>
 
@@ -92,12 +102,44 @@
 <div id="gestao" class="section">
     <h2>⚙️ Opções</h2>
     <div class="form-card">
-        <button onclick="novoCampeonato()">+ Novo Campeonato</button>
-        <div id="listaCampeonatos" style="margin-top: 10px;"></div>
-    </div>
-    <div class="form-card">
-        <button onclick="novoPiloto()">+ Novo Piloto</button>
-        <div id="listaPilotos" style="margin-top: 10px;"></div>
+        <div class="tabs">
+            <button id="tabCampeonatos" class="tab-btn active-tab" onclick="trocarAbaGestao('campeonatos')">Campeonatos</button>
+            <button id="tabPilotos" class="tab-btn" onclick="trocarAbaGestao('pilotos')">Pilotos</button>
+        </div>
+
+        <div id="secCampeonatos">
+            <h3>Campeonatos</h3>
+            <input id="camp_nome" placeholder="Nome (obrigatório)">
+            <input id="camp_descricao" placeholder="Descrição">
+            <input id="camp_data_inicio" type="date" placeholder="Data de inicio">
+            <input id="camp_data_fim" type="date" placeholder="Data de fim">
+            <button onclick="salvarCampeonato()">Salvar campeonato</button>
+            <div id="feedbackCampeonato" class="feedback"></div>
+            <div class="piloto-card" style="align-items:flex-end;">
+                <div style="flex:1;">
+                    <label>Posição</label>
+                    <input id="pont_posicao" type="number" min="1" placeholder="posição">
+                </div>
+                <div style="flex:1;">
+                    <label>Pontos</label>
+                    <input id="pont_pontos" type="number" placeholder="pontos">
+                </div>
+                <button style="width:auto;" onclick="adicionarPontuacaoLinha()">+ Pontuação</button>
+            </div>
+            <div id="listaPontuacoes"></div>
+            <div id="listaCampeonatos" style="margin-top: 10px;"></div>
+        </div>
+
+        <div id="secPilotos" style="display:none;">
+            <h3>Pilotos</h3>
+            <input id="piloto_id" placeholder="id_piloto (obrigatório para novo cadastro)">
+            <input id="piloto_nome" placeholder="Nome (obrigatório)">
+            <input id="piloto_apelido" placeholder="Apelido">
+            <select id="piloto_campeonatos"></select>
+            <button onclick="salvarPiloto()">Salvar piloto</button>
+            <div id="feedbackPiloto" class="feedback"></div>
+            <div id="listaPilotos" style="margin-top: 10px;"></div>
+        </div>
     </div>
 </div>
 
