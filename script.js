@@ -270,6 +270,8 @@ function toggleHistoricoLinha(nome, idx) {
     row.style.display = "table-row";
     row.dataset.open = "1";
 }
+function renderArquivosDoDia(dia) { const detalhe = document.getElementById("arquivosDoDia"); const ordem = { volta_a_volta: 1, classificacao: 2, resultado_final: 3 }; const itens = HISTORICO_CACHE.filter(item => extrairDataItem(item) === dia).sort((a, b) => (a.campeonato || "").localeCompare(b.campeonato || "") || (ordem[a.tipoArquivo] || 9) - (ordem[b.tipoArquivo] || 9)); let html = `<h3>📅 Arquivos de ${formatarDataBR(dia)}</h3>`; itens.forEach(item => { html += `<div class="arquivo-card"><div><strong>${htmlEscape(item.tipoLabel || item.tipoArquivo || "Arquivo")}</strong><br><small>${htmlEscape(item.campeonato || "Sem campeonato")} • ${htmlEscape(item.nomeArquivo || "-")}</small></div><button class="btn-view" onclick="verConteudo('${item.key}')">VER</button></div>`; }); detalhe.innerHTML = html; }
+function verConteudo(key) { database.ref("backups/" + key).once("value", s => { const item = s.val(); const win = window.open("", "_blank"); if (!item) return win.document.write("Arquivo não encontrado."); const mime = item.mimeType || ""; const dataUrl = item.dataUrl || ""; if (mime.includes("pdf") && dataUrl) return win.document.write(`<iframe src="${dataUrl}" style="width:100%;height:100vh;border:0;"></iframe>`); if (item.conteudo) return win.document.write(item.conteudo); if (dataUrl) return win.document.write(`<iframe src="${dataUrl}" style="width:100%;height:100vh;border:0;"></iframe>`); win.document.write("Não foi possível abrir o arquivo."); }); }
 
 function renderRanking() {
     const f = document.getElementById("filtro_rank_camp").value;
@@ -290,7 +292,6 @@ function renderRanking() {
         h += `<tr onclick="toggleHistoricoLinha('${htmlEscape(p[0])}', ${i})" style="cursor:pointer;"><td>${i + 1}º</td><td>${htmlEscape(p[0])}</td><td>${p[1]} <small style='color:#aaa; font-size:11px;'>(${perc}%)</small></td></tr>`;
         h += `<tr id="hist_row_${i}" class="hist-detalhe" data-open="0" style="display:none;"></tr>`;
     });
-
     document.getElementById("rankingContent").innerHTML = h + "</table>";
 }
 
