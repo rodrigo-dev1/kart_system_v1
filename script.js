@@ -15,6 +15,11 @@ const URL_API = "https://script.google.com/macros/s/AKfycbwWIL3hrPq6w6pCjCS5-ZYw
 
 let DB = { campeonatos: [], pilotos: [], resultados: [] };
 let HISTORICO_CACHE = [];
+let abaGestaoAtual = "campeonatos";
+let campeonatoEditando = null;
+let pilotoEditando = null;
+let IMPORTACAO_PREVIA = [];
+const PONTOS_PADRAO = { 1: 20, 2: 17, 3: 15, 4: 13, 5: 11, 6: 10, 7: 9, 8: 8, 9: 7, 10: 6 };
 
 const MEUS_PILOTOS = [
     { id: "41938", nome: "LEONARDO LEMES" },
@@ -82,15 +87,23 @@ function arquivoParaDataUrl(file) {
 }
 
 function pilotosDoCampeonato(campeonato) {
-    return DB.pilotos.filter(p => p.vinculos && p.vinculos.includes(campeonato));
+    return DB.pilotos.filter(p => vinculosPiloto(p).includes(campeonato));
+}
+function pontuacaoPorPosicao(campeonato, posicao) {
+    const base = (DB.pontuacoes || []).find(p => p.campeonato === campeonato && parseInt(p.posicao) === parseInt(posicao));
+    if (base && !Number.isNaN(parseInt(base.pontos))) return { pontos: parseInt(base.pontos), origem: "Pontuação cadastrada" };
+    if (PONTOS_PADRAO[posicao]) return { pontos: PONTOS_PADRAO[posicao], origem: "Pontuação padrão" };
+    return { pontos: 0, origem: "Sem pontuação" };
 }
 
 async function fazerBackupEProcessar() {
     const campeonato = document.getElementById("imp_camp").value;
+    const etapa = document.getElementById("imp_etapa").value;
     const dataCorrida = document.getElementById("imp_data").value;
     const status = document.getElementById("statusImport");
 
     if (!campeonato) return alert("Selecione o campeonato!");
+    if (!etapa) return alert("Informe a etapa!");
     if (!dataCorrida) return alert("Informe a data da corrida!");
 
     const arquivos = TIPOS_ARQUIVO.map(cfg => ({ ...cfg, file: document.getElementById(cfg.inputId).files[0] }));
@@ -120,9 +133,9 @@ async function fazerBackupEProcessar() {
     }
 
     if (htmlResultadoFinal) {
-        const encontrados = analisarHTML(htmlResultadoFinal, campeonato, dataCorrida, true);
-        const lancados = await lancarAutomatico(encontrados, campeonato, dataCorrida);
-        status.innerHTML = `✅ Arquivos salvos. ${lancados} resultado(s) lançado(s) automaticamente.`;
+        IMPORTACAO_PREVIA = analisarHTML(htmlResultadoFinal, campeonato, dataCorrida, true);
+        status.innerHTML = `✅ Arquivos salvos. Revise os pilotos abaixo e confirme a importação.`;
+        document.getElementById("btnConfirmarImportacao").style.display = "block";
     } else {
         status.innerHTML = "✅ Arquivos salvos no Firebase!";
     }
@@ -155,25 +168,88 @@ function analisarHTML(htmlText, campeonato = "", dataCorrida = "", auto = false)
 
     let encontrados = [];
     rows.forEach(row => {
-        participantes.forEach(p => {
-            const pilotoId = String(p.id || "");
-            if (pilotoId && row.innerText.includes(pilotoId)) {
-                const tds = row.querySelectorAll("td");
-                const pos = tds.length ? tds[0].innerText.trim() : "";
-                encontrados.push({ nome: p.nome, pos: pos, id: pilotoId });
-            }
-        });
+        const tds = row.querySelectorAll("td");
+        if (!tds.length) return;
+        const textos = Array.from(tds).map(td => (td.innerText || "").trim()).filter(Boolean);
+        const pos = textos.find(t => /^\d+$/.test(t));
+        if (!pos) return;
+        const possivelId = textos.find(t => /^\d{3,}$/.test(t) && t !== pos) || "";
+        const nome = textos.find(t => /[a-zA-ZÀ-ÿ]/.test(t) && t !== possivelId) || "";
+        if (!nome) return;
+        encontrados.push({ nome, pos, id_piloto: possivelId });
     });
+    encontrados = encontrados.filter((r, i, arr) => arr.findIndex(x => x.nome === r.nome && x.pos === r.pos && String(x.id_piloto) === String(r.id_piloto)) === i);
+    IMPORTACAO_PREVIA = encontrados.map(item => {
+        const porId = DB.pilotos.filter(p => String(getPilotoCampo(p, "id_piloto", "id") || "").trim() === String(item.id_piloto || "").trim() && item.id_piloto);
+        const conflitoId = porId.length > 1;
+        const existente = porId[0] ||
+            DB.pilotos.find(p => (getPilotoCampo(p, "nome") || "").toUpperCase() === (item.nome || "").toUpperCase());
+        const vinculado = existente ? vinculosPiloto(existente).includes(campeonato) : false;
+        return { ...item, checked: vinculado, conflitoId, status: conflitoId ? "ID duplicado/conflito" : (existente ? "Piloto já cadastrado" : "Será cadastrado automaticamente"), posGeral: parseInt(item.pos) || 9999 };
+    });
+    recalcularPreviewImportacao(campeonato);
+    return IMPORTACAO_PREVIA;
+}
 
-    let h = "<h3>Pilotos Identificados no Resultado Final:</h3>";
-    if (!encontrados.length) h += "<p class='muted'>Nenhum piloto do campeonato foi identificado automaticamente.</p>";
-    encontrados.forEach(i => {
-        h += `<div class="piloto-card"><span><strong>${htmlEscape(i.nome)}</strong> (P${htmlEscape(i.pos)})</span><button onclick="preencher('${htmlEscape(i.nome)}','${htmlEscape(i.pos)}','${htmlEscape(campeonato)}','${htmlEscape(dataCorrida)}')" style="width:auto; padding:5px 15px; margin:0; font-size:12px;">Lançar</button></div>`;
+function recalcularPreviewImportacao(campeonato) {
+    IMPORTACAO_PREVIA = (IMPORTACAO_PREVIA.length ? IMPORTACAO_PREVIA : []).sort((a, b) => (a.posGeral || 9999) - (b.posGeral || 9999));
+    const selecionados = IMPORTACAO_PREVIA.filter(i => i.checked && !i.conflitoId).sort((a, b) => a.posGeral - b.posGeral);
+    const mapaPos = new Map(selecionados.map((p, idx) => [p, idx + 1]));
+    IMPORTACAO_PREVIA.forEach(item => {
+        item.posCampeonato = item.checked && !item.conflitoId ? (mapaPos.get(item) || 0) : 0;
+        const calc = item.posCampeonato ? pontuacaoPorPosicao(campeonato, item.posCampeonato) : { pontos: 0, origem: "-" };
+        item.pontos = calc.pontos;
+        item.origemPontuacao = calc.origem;
     });
+    let h = "<h3>Pilotos Identificados no Resultado Final:</h3>";
+    if (!IMPORTACAO_PREVIA.length) h += "<p class='muted'>Nenhum piloto identificado no arquivo final.</p>";
+    h += `<table><tr><th></th><th>Pos. geral</th><th>ID</th><th>Piloto</th><th>Status</th><th>Pos. campeonato</th><th>Pontos</th><th>Origem</th></tr>`;
+    IMPORTACAO_PREVIA.forEach((i, idx) => {
+        h += `<tr><td><input type="checkbox" id="imp_chk_${idx}" ${i.checked ? "checked" : ""} onchange="toggleSelecionadoImport(${idx}, '${htmlEscape(campeonato)}')"></td><td>${htmlEscape(i.pos)}</td><td>${htmlEscape(i.id_piloto || "-")}</td><td>${htmlEscape(i.nome)}</td><td>${htmlEscape(i.status)}</td><td>${i.posCampeonato || "-"}</td><td>${i.pontos}</td><td>${htmlEscape(i.origemPontuacao || "-")}</td></tr>`;
+    });
+    h += "</table>";
 
     if (auto) h += "<p class='hint'>Somente pilotos vinculados ao campeonato foram considerados.</p>";
     document.getElementById("previewImportacao").innerHTML = h;
-    return encontrados;
+}
+
+function toggleSelecionadoImport(idx, campeonato) {
+    IMPORTACAO_PREVIA[idx].checked = !!document.getElementById(`imp_chk_${idx}`)?.checked;
+    recalcularPreviewImportacao(campeonato);
+}
+
+async function confirmarImportacao() {
+    const campeonato = document.getElementById("imp_camp").value;
+    const etapa = document.getElementById("imp_etapa").value;
+    const data = document.getElementById("imp_data").value;
+    const selecionados = IMPORTACAO_PREVIA.filter(i => i.checked && !i.conflitoId).sort((a, b) => a.posGeral - b.posGeral);
+    if (!selecionados.length) return alert("Selecione ao menos um piloto.");
+    const duplicadoEtapa = DB.resultados.some(r => (r.campeonato || r.Campeonato) === campeonato && String(r.etapa || r.Etapa) === String(etapa) && formatarDataISO(r.data || r.Data) === data);
+    if (duplicadoEtapa) return alert("Já existem resultados para este campeonato + etapa + data.");
+
+    const erros = [];
+    for (const p of selecionados) {
+        if (!p.nome) { erros.push("Piloto sem nome não pode ser importado."); continue; }
+        const porId = p.id_piloto ? DB.pilotos.find(x => String(getPilotoCampo(x, "id_piloto", "id")) === String(p.id_piloto)) : null;
+        const porNome = DB.pilotos.find(x => (getPilotoCampo(x, "nome") || "").toUpperCase() === (p.nome || "").toUpperCase());
+        const existente = porId || porNome;
+        try {
+            if (!existente) {
+                await enviarGestao({ tipo: "pilotos", acao: "criar", nome: p.nome, id_piloto: p.id_piloto || "", id: p.id_piloto || "", apelido: "", campeonatos: campeonato, vinculos: [campeonato] });
+            } else {
+                const vinc = new Set(vinculosPiloto(existente));
+                vinc.add(campeonato);
+                await enviarGestao({ tipo: "pilotos", acao: "editar", nomeAtual: getPilotoCampo(existente, "nome"), nome: getPilotoCampo(existente, "nome"), id_piloto: getPilotoCampo(existente, "id_piloto", "id"), id: getPilotoCampo(existente, "id_piloto", "id"), apelido: getPilotoCampo(existente, "apelido"), campeonatos: Array.from(vinc).join(", "), vinculos: Array.from(vinc) });
+            }
+            await enviarResultado({ tipo: "resultados", campeonato, etapa, piloto: p.nome, posicao: p.posCampeonato, pontos: p.pontos, data });
+        } catch (e) {
+            erros.push(`${p.nome}: ${e.message}`);
+        }
+    }
+    if (erros.length) return alert("Falha ao salvar alguns pilotos/resultados:\n" + erros.join("\n"));
+    await fetchData();
+    alert(`✅ Importação concluída com ${selecionados.length} piloto(s).`);
+    document.getElementById("btnConfirmarImportacao").style.display = "none";
 }
 
 function abrirGestao() {
@@ -181,24 +257,106 @@ function abrirGestao() {
     renderGestao();
 }
 
+function getPilotoCampo(p, ...keys) {
+    const achado = keys.find(k => p[k] !== undefined && p[k] !== null);
+    return achado ? p[achado] : "";
+}
+
+function vinculosPiloto(p) {
+    const bruto = getPilotoCampo(p, "campeonatos", "vinculos");
+    if (Array.isArray(bruto)) return bruto;
+    return String(bruto || "").split(",").map(v => v.trim()).filter(Boolean);
+}
+
+function trocarAbaGestao(aba) {
+    abaGestaoAtual = aba;
+    document.getElementById("secCampeonatos").style.display = aba === "campeonatos" ? "block" : "none";
+    document.getElementById("secPilotos").style.display = aba === "pilotos" ? "block" : "none";
+    document.getElementById("tabCampeonatos").classList.toggle("active-tab", aba === "campeonatos");
+    document.getElementById("tabPilotos").classList.toggle("active-tab", aba === "pilotos");
+}
+
 function renderGestao() {
-    document.getElementById("listaCampeonatos").innerHTML = DB.campeonatos.map(c => `<div class='piloto-card'><span>${htmlEscape(c.nome)}</span><span><button class='btn-view' onclick="editarCampeonato('${htmlEscape(c.nome)}')">Editar</button> <button class='btn-view' onclick="excluirCampeonato('${htmlEscape(c.nome)}')">Excluir</button></span></div>`).join("");
-    document.getElementById("listaPilotos").innerHTML = DB.pilotos.map(p => `<div class='piloto-card'><span>${htmlEscape(p.nome)}</span><span><button class='btn-view' onclick="editarPiloto('${htmlEscape(p.nome)}')">Editar</button> <button class='btn-view' onclick="excluirPiloto('${htmlEscape(p.nome)}')">Excluir</button></span></div>`).join("");
+    trocarAbaGestao(abaGestaoAtual);
+    document.getElementById("piloto_campeonatos").innerHTML = '<option value="">Selecione o campeonato</option>' + DB.campeonatos.map(c => `<option value="${htmlEscape(c.nome)}">${htmlEscape(c.nome)}</option>`).join("");
+    document.getElementById("listaCampeonatos").innerHTML = DB.campeonatos.map((c, idx) => `<div class='piloto-card'><span><strong>${htmlEscape(c.nome || "")}</strong><br><small class='muted'>${htmlEscape(c["descrição"] || c.descrição || "")} • ${htmlEscape(c["data de inicio"] || "")} até ${htmlEscape(c["data de fim"] || "")}</small></span><span class="actions"><button class='btn-icon' title="Editar" aria-label="Editar" onclick="editarCampeonato(${idx})">✏️</button><button class='btn-icon' title="Excluir" aria-label="Excluir" onclick="excluirCampeonato(${idx})">🗑️</button></span></div>`).join("") || "<p class='muted'>Nenhum campeonato cadastrado.</p>";
+    document.getElementById("listaPilotos").innerHTML = DB.pilotos.map((p, idx) => {
+        const nome = getPilotoCampo(p, "nome");
+        const idPiloto = getPilotoCampo(p, "id_piloto", "id");
+        const apelido = getPilotoCampo(p, "apelido");
+        const camps = vinculosPiloto(p).join(", ");
+        return `<div class='piloto-card'><span><strong>${htmlEscape(nome)}</strong><br><small class='muted'>id_piloto: ${htmlEscape(idPiloto || "-")} • apelido: ${htmlEscape(apelido || "-")} • campeonatos: ${htmlEscape(camps || "-")}</small></span><span class="actions"><button class='btn-icon' title="Editar" aria-label="Editar" onclick="editarPiloto(${idx})">✏️</button><button class='btn-icon' title="Excluir" aria-label="Excluir" onclick="excluirPiloto(${idx})">🗑️</button></span></div>`;
+    }).join("") || "<p class='muted'>Nenhum piloto cadastrado.</p>";
+    renderPontuacoesCampeonato(document.getElementById("camp_nome").value || DB.campeonatos[0]?.nome || "");
 }
 
 async function enviarGestao(payload) {
     const r = await fetch(URL_API, { method: "POST", body: JSON.stringify(payload) });
-    alert(await r.text());
+    const msg = await r.text();
+    const target = payload.tipo === "campeonatos" ? "feedbackCampeonato" : "feedbackPiloto";
+    document.getElementById(target).textContent = msg;
     await fetchData();
     renderGestao();
 }
 
-function novoCampeonato() { const nome = prompt("Nome do campeonato:"); if (nome) enviarGestao({ tipo: "campeonatos", acao: "criar", nome }); }
-function editarCampeonato(nomeAtual) { const nome = prompt("Novo nome:", nomeAtual); if (nome && nome !== nomeAtual) enviarGestao({ tipo: "campeonatos", acao: "editar", nomeAtual, nome }); }
-function excluirCampeonato(nome) { if (confirm(`Excluir campeonato ${nome}?`)) enviarGestao({ tipo: "campeonatos", acao: "excluir", nome }); }
-function novoPiloto() { const nome = prompt("Nome do piloto:"); if (!nome) return; const id = prompt("ID do piloto no sistema de corrida:") || ""; const vinculos = prompt("Campeonatos (separados por vírgula):", "") || ""; enviarGestao({ tipo: "pilotos", acao: "criar", nome, id, vinculos: vinculos.split(",").map(v => v.trim()).filter(Boolean) }); }
-function editarPiloto(nomeAtual) { const p = DB.pilotos.find(x => x.nome === nomeAtual); if (!p) return; const nome = prompt("Novo nome:", p.nome) || p.nome; const id = prompt("Novo ID:", p.id || "") || ""; const vinculosAtual = (p.vinculos || []).join(", "); const vinculos = prompt("Campeonatos (separados por vírgula):", vinculosAtual) || vinculosAtual; enviarGestao({ tipo: "pilotos", acao: "editar", nomeAtual, nome, id, vinculos: vinculos.split(",").map(v => v.trim()).filter(Boolean) }); }
-function excluirPiloto(nome) { if (confirm(`Excluir piloto ${nome}?`)) enviarGestao({ tipo: "pilotos", acao: "excluir", nome }); }
+async function salvarCampeonato() {
+    const nome = document.getElementById("camp_nome").value.trim();
+    if (!nome) return (document.getElementById("feedbackCampeonato").innerHTML = '<span class="error">Nome do campeonato é obrigatório.</span>');
+    const payload = { tipo: "campeonatos", acao: campeonatoEditando === null ? "criar" : "editar", nome, descrição: document.getElementById("camp_descricao").value.trim(), "data de inicio": document.getElementById("camp_data_inicio").value, "data de fim": document.getElementById("camp_data_fim").value };
+    if (campeonatoEditando !== null) payload.nomeAtual = DB.campeonatos[campeonatoEditando].nome;
+    await enviarGestao(payload);
+    await garantirPontuacaoPadrao(nome);
+    campeonatoEditando = null;
+}
+function editarCampeonato(idx) { const c = DB.campeonatos[idx]; if (!c) return; campeonatoEditando = idx; document.getElementById("camp_nome").value = c.nome || ""; document.getElementById("camp_descricao").value = c["descrição"] || c.descrição || ""; document.getElementById("camp_data_inicio").value = formatarDataISO(c["data de inicio"] || ""); document.getElementById("camp_data_fim").value = formatarDataISO(c["data de fim"] || ""); trocarAbaGestao("campeonatos"); renderPontuacoesCampeonato(c.nome || ""); }
+function excluirCampeonato(idx) { const c = DB.campeonatos[idx]; if (c && confirm(`Excluir campeonato ${c.nome}?`)) enviarGestao({ tipo: "campeonatos", acao: "excluir", nome: c.nome }); }
+async function garantirPontuacaoPadrao(campeonato) {
+    const existentes = (DB.pontuacoes || []).filter(p => p.campeonato === campeonato);
+    if (existentes.length) return;
+    for (const [posicao, pontos] of Object.entries(PONTOS_PADRAO)) await enviarGestao({ tipo: "pontuacoes", acao: "criar", campeonato, posicao: Number(posicao), pontos });
+}
+function renderPontuacoesCampeonato(campeonato) {
+    const linhas = (DB.pontuacoes || []).filter(p => p.campeonato === campeonato).sort((a, b) => parseInt(a.posicao) - parseInt(b.posicao));
+    document.getElementById("listaPontuacoes").innerHTML = linhas.map((p, idx) => `<div class='piloto-card'><span>Posição ${p.posicao} = ${p.pontos} pontos</span><span class="actions"><button class='btn-icon' title="Editar" aria-label="Editar" onclick="editarPontuacao('${campeonato}',${idx})">✏️</button><button class='btn-icon' title="Excluir" aria-label="Excluir" onclick="excluirPontuacao('${campeonato}',${idx})">🗑️</button></span></div>`).join("") || "<p class='muted'>Sem pontuação cadastrada.</p>";
+}
+async function adicionarPontuacaoLinha() {
+    const campeonato = document.getElementById("camp_nome").value.trim();
+    const posicao = parseInt(document.getElementById("pont_posicao").value);
+    const pontos = parseInt(document.getElementById("pont_pontos").value);
+    if (!campeonato || !posicao || Number.isNaN(pontos)) return alert("Preencha campeonato, posição e pontos.");
+    const existente = (DB.pontuacoes || []).find(p => p.campeonato === campeonato && parseInt(p.posicao) === posicao);
+    await enviarGestao({ tipo: "pontuacoes", acao: existente ? "editar" : "criar", campeonato, posicao, pontos });
+}
+async function editarPontuacao(campeonato, idx) {
+    const linhas = (DB.pontuacoes || []).filter(p => p.campeonato === campeonato).sort((a, b) => parseInt(a.posicao) - parseInt(b.posicao));
+    const item = linhas[idx];
+    if (!item) return;
+    const novo = prompt(`Pontos para posição ${item.posicao}:`, item.pontos);
+    if (novo === null) return;
+    await enviarGestao({ tipo: "pontuacoes", acao: "editar", campeonato, posicao: item.posicao, pontos: parseInt(novo) || 0 });
+}
+async function excluirPontuacao(campeonato, idx) {
+    const linhas = (DB.pontuacoes || []).filter(p => p.campeonato === campeonato).sort((a, b) => parseInt(a.posicao) - parseInt(b.posicao));
+    const item = linhas[idx];
+    if (!item || !confirm(`Excluir pontuação da posição ${item.posicao}?`)) return;
+    await enviarGestao({ tipo: "pontuacoes", acao: "excluir", campeonato, posicao: item.posicao });
+}
+
+async function salvarPiloto() {
+    const nome = document.getElementById("piloto_nome").value.trim();
+    const id_piloto = document.getElementById("piloto_id").value.trim();
+    const campeonatos = document.getElementById("piloto_campeonatos").value.trim();
+    if (!nome) return (document.getElementById("feedbackPiloto").innerHTML = '<span class="error">Nome do piloto é obrigatório.</span>');
+    if (pilotoEditando === null && !id_piloto) return (document.getElementById("feedbackPiloto").innerHTML = '<span class="error">id_piloto é obrigatório para novos cadastros.</span>');
+    const duplicado = DB.pilotos.some((p, idx) => idx !== pilotoEditando && String(getPilotoCampo(p, "id_piloto", "id") || "").trim() === id_piloto && id_piloto);
+    if (duplicado) return (document.getElementById("feedbackPiloto").innerHTML = '<span class="error">Já existe piloto com este id_piloto.</span>');
+    const payload = { tipo: "pilotos", acao: pilotoEditando === null ? "criar" : "editar", nome, id_piloto, id: id_piloto, apelido: document.getElementById("piloto_apelido").value.trim(), campeonatos, vinculos: campeonatos ? [campeonatos] : [] };
+    if (pilotoEditando !== null) payload.nomeAtual = getPilotoCampo(DB.pilotos[pilotoEditando], "nome");
+    await enviarGestao(payload);
+    pilotoEditando = null;
+}
+function editarPiloto(idx) { const p = DB.pilotos[idx]; if (!p) return; pilotoEditando = idx; document.getElementById("piloto_nome").value = getPilotoCampo(p, "nome"); document.getElementById("piloto_id").value = getPilotoCampo(p, "id_piloto", "id"); document.getElementById("piloto_apelido").value = getPilotoCampo(p, "apelido"); document.getElementById("piloto_campeonatos").value = vinculosPiloto(p)[0] || ""; trocarAbaGestao("pilotos"); }
+function excluirPiloto(idx) { const p = DB.pilotos[idx]; const nome = p ? getPilotoCampo(p, "nome") : ""; if (nome && confirm(`Excluir piloto ${nome}?`)) enviarGestao({ tipo: "pilotos", acao: "excluir", nome }); }
 
 function preencher(nome, pos, campeonato = "", dataCorrida = "") { show("lançar"); const selPiloto = document.getElementById("sel_piloto"); if (!Array.from(selPiloto.options).some(opt => opt.value === nome)) { const opt = document.createElement("option"); opt.value = nome; opt.text = nome; selPiloto.add(opt); } if (campeonato) { document.getElementById("sel_camp").value = campeonato; filtrarPilotosPorCamp(); if (!Array.from(selPiloto.options).some(opt => opt.value === nome)) { const opt = document.createElement("option"); opt.value = nome; opt.text = nome; selPiloto.add(opt); } } selPiloto.value = nome; document.getElementById("res_pos").value = parseInt(pos) || ""; if (dataCorrida) document.getElementById("res_data").value = dataCorrida; document.getElementById("res_etapa").focus(); }
 
@@ -308,6 +466,7 @@ function popularFiltros() {
     document.getElementById("filtro_rank_camp").innerHTML = '<option value="">📊 Ranking Geral</option>' + opts;
     document.getElementById("sel_camp").innerHTML = '<option value="">Selecione o Campeonato</option>' + opts;
     document.getElementById("imp_camp").innerHTML = '<option value="">Selecione o Campeonato</option>' + opts;
+    document.getElementById("imp_etapa").value = "";
     document.getElementById("imp_data").value = hojeISO();
     document.getElementById("res_data").value = hojeISO();
     const pOpts = DB.pilotos.map(p => `<option value="${htmlEscape(p.nome)}">${htmlEscape(p.nome)}</option>`).sort().join("");
