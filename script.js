@@ -54,7 +54,15 @@ function show(id) {
 function htmlEscape(v) { return String(v || "").replace(/[&<>'"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;" }[c])); }
 function normalizarChave(v) { return String(v || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-zA-Z0-9_-]/g, "_").toLowerCase(); }
 function hojeISO() { return new Date().toISOString().slice(0, 10); }
-function formatarDataBR(dataISO) { if (!dataISO) return "-"; const p = dataISO.split("-"); return p.length === 3 ? `${p[2]}/${p[1]}/${p[0]}` : dataISO; }
+function formatarDataBR(dataISO) { if (!dataISO) return "-"; const base = String(dataISO).split("T")[0].split(" ")[0]; const p = base.split("-"); return p.length === 3 ? `${p[2]}/${p[1]}/${p[0]}` : base; }
+function formatarDataISO(dataISO) { if (!dataISO) return "-"; return String(dataISO).split("T")[0].split(" ")[0]; }
+
+
+function paraTimestamp(dataISO) {
+    const base = formatarDataISO(dataISO);
+    const t = new Date(`${base}T00:00:00Z`).getTime();
+    return Number.isNaN(t) ? 0 : t;
+}
 
 function extrairDataItem(item) {
     if (item.dataCorrida) return item.dataCorrida;
@@ -210,13 +218,13 @@ function obterHistoricoPiloto(nome, campeonatoFiltro = "") {
     return DB.resultados
         .filter(r => (r.piloto || r.Piloto) === nome && (!campeonatoFiltro || (r.campeonato || r.Campeonato) === campeonatoFiltro))
         .map(r => ({
-            data: r.data || r.Data || "",
+            data: formatarDataISO(r.data || r.Data || ""),
             campeonato: r.campeonato || r.Campeonato || "-",
             etapa: r.etapa || r.Etapa || "-",
             posicao: parseInt(r.posicao || r.Posicao) || 0,
             pontos: parseInt(r.pontos || r.Pontos) || 0
         }))
-        .sort((a, b) => String(a.data).localeCompare(String(b.data)));
+        .sort((a, b) => paraTimestamp(a.data) - paraTimestamp(b.data));
 }
 
 function gerarGraficoHistoricoSVG(hist) {
@@ -241,7 +249,7 @@ function gerarGraficoHistoricoSVG(hist) {
     const labels = hist.map((item, i) => `<text x="${x(i)}" y="${h - 8}" fill="#999" font-size="10" text-anchor="middle">${(item.data || '-').slice(5)}</text>`).join('');
     const pontos = hist.map((item, i) => `<circle cx="${x(i)}" cy="${y(item.posicao || 1)}" r="3.5" fill="#ff4b4b"/><title>${item.data} • P${item.posicao}</title>`).join('');
 
-    return `<svg viewBox="0 0 ${w} ${h}" style="width:100%; background:#141923; border-radius:8px;">${linhas}<polyline points="${points}" fill="none" stroke="#ff4b4b" stroke-width="2.5" stroke-linecap="round"/>${pontos}${labels}</svg>`;
+    return `<svg viewBox="0 0 ${w} ${h}" preserveAspectRatio="xMidYMid meet" style="display:block; width:100%; max-width:100%; height:auto; background:#141923; border-radius:8px;">${linhas}<polyline points="${points}" fill="none" stroke="#ff4b4b" stroke-width="2.5" stroke-linecap="round"/>${pontos}${labels}</svg>`;
 }
 
 function toggleHistoricoLinha(nome, idx) {
@@ -263,10 +271,10 @@ function toggleHistoricoLinha(nome, idx) {
     const tabela = hist.length ? `
         <table style="margin-top:10px; font-size:12px;">
             <tr><th>Data</th><th>Camp.</th><th>Etapa</th><th>Posição</th><th>Pontos</th></tr>
-            ${hist.map(item => `<tr><td>${htmlEscape(formatarDataBR(item.data))}</td><td>${htmlEscape(item.campeonato)}</td><td>${htmlEscape(item.etapa)}</td><td>${item.posicao ? `P${item.posicao}` : "-"}</td><td>${item.pontos}</td></tr>`).join('')}
+            ${hist.map(item => `<tr><td>${htmlEscape(item.data)}</td><td>${htmlEscape(item.campeonato)}</td><td>${htmlEscape(item.etapa)}</td><td>${item.posicao ? `P${item.posicao}` : "-"}</td><td>${item.pontos}</td></tr>`).join('')}
         </table>` : "<p class='muted'>Sem corridas registradas.</p>";
 
-    row.innerHTML = `<td colspan="3"><div style="padding:8px 4px;"><div class='hint' style='margin-bottom:6px;'>Evolução de posições por corrida (linha do tempo)</div>${grafico}${tabela}</div></td>`;
+    row.innerHTML = `<td colspan="3"><div style="padding:8px 4px; max-width:100%; overflow:hidden;"><div class='hint' style='margin-bottom:6px;'>Evolução de posições por corrida (linha do tempo)</div><div style='max-width:100%; overflow-x:auto;'>${grafico}</div><div style='max-width:100%; overflow-x:auto;'>${tabela}</div></div></td>`;
     row.style.display = "table-row";
     row.dataset.open = "1";
 }
