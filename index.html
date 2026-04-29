@@ -89,11 +89,25 @@
     </div>
 </div>
 
+<div id="gestao" class="section">
+    <h2>⚙️ Opções</h2>
+    <div class="form-card">
+        <button onclick="novoCampeonato()">+ Novo Campeonato</button>
+        <div id="listaCampeonatos" style="margin-top: 10px;"></div>
+    </div>
+    <div class="form-card">
+        <button onclick="novoPiloto()">+ Novo Piloto</button>
+        <div id="listaPilotos" style="margin-top: 10px;"></div>
+    </div>
+</div>
+
+
 <nav class="navbar">
     <div class="nav-item" onclick="show('dash')">📊<br>Rank</div>
     <div class="nav-item" onclick="show('historico'); carregarHistorico();">📜<br>Consultar</div>
     <div class="nav-item" onclick="show('importar')">📂<br>Importar</div>
     <div class="nav-item" onclick="show('lançar')">⏱️<br>Lançar</div>
+    <div class="nav-item" onclick="abrirGestao()">⚙️<br>Opções</div>
 </nav>
 
 <script src="script.js"></script>
