@@ -1,37 +1,28 @@
-# Kart System v1 (Firebase)
+# Kart System v1 (GitHub Pages + Firebase Web SDK)
 
-Front-end puro (HTML/CSS/JS) hospedável no GitHub Pages, usando **Firestore** + **Storage** (sem backend, sem build).
+Projeto front-end puro (HTML/CSS/JavaScript) usando Firestore + Storage via CDN compat.
 
-## Arquitetura
-- `index.html`: layout e navegação.
-- `css/styles.css`: tema dark.
-- `js/firebaseConfig.js`: inicialização Firebase (compat CDN).
-- `js/constants.js`: senha ADM temporária, pontuação, tipos e seed.
-- `js/utils.js`: utilitários gerais.
-- `js/services/*`: Firestore, Storage, ranking e importação.
-- `js/ui/*`: telas e eventos.
-- `js/app.js`: bootstrap.
+## Configuração Firebase Web (obrigatório)
+Edite `js/firebaseConfig.js` com as credenciais **Web App** do Firebase (Project settings > General > Your apps > Web app config):
+- `apiKey`
+- `authDomain`
+- `projectId`
+- `storageBucket`
+- `messagingSenderId`
+- `appId`
 
-## Collections Firestore
-- `campeonatos/{campeonatoId}`
-- `pilotos/{driverId}`
-- `campeonatos_pilotos/{campeonatoId}_{driverId}`
-- `corridas/{corridaId}`
-- `corridas/{corridaId}/resultados/{driverId}`
-- `importacoes/{importacaoId}`
-- `importacoes/{importacaoId}/arquivos/{tipoArquivo}`
+> Não use Service Account no front-end.
 
-## Storage
-- `corridas/{campeonatoId}/{corridaId}/volta_a_volta/{nomeArquivo}`
-- `corridas/{campeonatoId}/{corridaId}/classificacao/{nomeArquivo}`
-- `corridas/{campeonatoId}/{corridaId}/resultado_final/{nomeArquivo}`
+## Segurança importante
+Este projeto roda em GitHub Pages. Portanto, **nunca** coloque no repositório:
+- service account JSON
+- `private_key`
+- `client_email`
+- `firebase-admin`
 
-## GitHub Pages
-1. Configure valores reais em `js/firebaseConfig.js`.
-2. Faça push para branch publicada (ex: `main`).
-3. Em **Settings > Pages**, selecione branch root.
+Use apenas Firebase Web SDK e proteja acesso via Firestore/Storage Rules.
 
-## Regras temporárias (somente DEV)
+## Regras temporárias (apenas desenvolvimento)
 Firestore:
 ```txt
 rules_version = '2';
@@ -54,8 +45,14 @@ service firebase.storage {
   }
 }
 ```
+⚠️ Essas regras são apenas para desenvolvimento. Não usar em produção.
 
-> ⚠️ Inseguro para produção. Trocar por regras com autenticação/autorização.
+## Testar conexão Firebase
+Na tela **Consultar Arquivos**, clique em **Testar conexão Firebase**.
+- sucesso: “Conexão com Firestore OK.”
+- falha: mensagem de erro de configuração/permissão.
 
-## Segurança temporária
-Senha ADM está no front (`123456`) e deve ser substituída por **Firebase Authentication** em produção.
+## Publicação GitHub Pages
+1. Commit/push na branch publicada.
+2. GitHub > Settings > Pages > branch e pasta root.
+3. Acesse a URL publicada.
