@@ -1,0 +1,13 @@
+:root{--red:#ff4b4b;--dark:#0e1117;--card:#1d2129;--muted:#a3a3a3}
+body{font-family:Segoe UI,sans-serif;background:var(--dark);color:#fff;margin:0;padding:0 0 78px}
+.section{display:none;padding:16px}.section.active{display:block}
+.navbar{position:fixed;bottom:0;width:100%;background:var(--card);display:flex;justify-content:space-around;padding:10px 0;border-top:2px solid var(--red)}
+.nav-item{color:#fff;text-decoration:none;font-size:11px;text-align:center;cursor:pointer}
+.form-card{background:var(--card);padding:14px;border-radius:12px;border:1px solid #333;margin-bottom:14px}
+input,select,textarea,button{width:100%;padding:10px;margin:6px 0;border-radius:8px;box-sizing:border-box}
+input,select,textarea{background:#333;border:1px solid #444;color:#fff}button{background:var(--red);border:none;color:#fff;font-weight:700;cursor:pointer}
+button.secondary{background:#2b3240}.muted{color:var(--muted);font-size:12px}.row{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+table{width:100%;border-collapse:collapse;background:var(--card);font-size:13px}th,td{border-bottom:1px solid #333;padding:8px}th{color:var(--red);background:#252a34}
+.tag{display:inline-block;padding:2px 6px;border-radius:10px;background:#252a34;font-size:11px}
+.feedback{font-size:13px;margin-top:8px}.ok{color:#85e085}.err{color:#ff8a8a}
+.loader{font-size:13px;color:#ffeb3b}
