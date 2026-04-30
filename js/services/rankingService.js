@@ -1,0 +1,6 @@
+window.RankingService={
+ aplicarPontuacao(pos,camp){return Number(camp?.pontuacao?.[pos]??(pos>=15?1:window.AppConstants.PONTUACAO_PADRAO[pos]||0));},
+ async calcularRanking(campeonatoId){const corridas=await FirestoreService.queryDocuments('corridas',[['campeonatoId','==',campeonatoId]],'etapa');const vinc=await FirestoreService.queryDocuments('campeonatos_pilotos',[['campeonatoId','==',campeonatoId],['ativo','==',true]]);const allowed=new Set(vinc.map(v=>v.driverId));const mapa={};for(const c of corridas){const rs=await FirestoreService.listSubDocuments('corridas',c.id,'resultados');rs.filter(r=>allowed.has(r.driverId)).forEach(r=>{mapa[r.driverId]=mapa[r.driverId]||{piloto:r.pilotoNome,pontos:0,vitorias:0,p2:0,p3:0,poles:0,melhoresVoltas:0,corridas:0,ultimaPos:999};const m=mapa[r.driverId];m.pontos+=Number(r.pontosTotal||0);if(r.posicaoPontuavel===1)m.vitorias++;if(r.posicaoPontuavel===2)m.p2++;if(r.posicaoPontuavel===3)m.p3++;if(r.pontoPole)m.poles++;if(r.pontoMelhorVolta)m.melhoresVoltas++;if(r.participou)m.corridas++;m.ultimaPos=r.posicaoPontuavel||999;});}
+ return Object.values(mapa).sort((a,b)=>b.pontos-a.pontos||b.vitorias-a.vitorias||b.p2-a.p2||b.p3-a.p3||a.ultimaPos-b.ultimaPos);
+ }
+};
