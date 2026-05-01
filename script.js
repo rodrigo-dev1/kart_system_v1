@@ -252,6 +252,32 @@ async function confirmarImportacao() {
     document.getElementById("btnConfirmarImportacao").style.display = "none";
 }
 
+async function confirmarImportacao() {
+    const campeonato = document.getElementById("imp_camp").value;
+    const etapa = document.getElementById("imp_etapa").value;
+    const data = document.getElementById("imp_data").value;
+    const selecionados = IMPORTACAO_PREVIA.filter((_, idx) => document.getElementById(`imp_chk_${idx}`)?.checked);
+    if (!selecionados.length) return alert("Selecione ao menos um piloto.");
+    const duplicadoEtapa = DB.resultados.some(r => (r.campeonato || r.Campeonato) === campeonato && String(r.etapa || r.Etapa) === String(etapa) && formatarDataISO(r.data || r.Data) === data);
+    if (duplicadoEtapa) return alert("Já existem resultados para este campeonato + etapa + data.");
+
+    for (const p of selecionados) {
+        const porId = p.id_piloto ? DB.pilotos.find(x => String(getPilotoCampo(x, "id_piloto", "id")) === String(p.id_piloto)) : null;
+        const porNome = DB.pilotos.find(x => (getPilotoCampo(x, "nome") || "").toUpperCase() === (p.nome || "").toUpperCase());
+        const existente = porId || porNome;
+        if (!existente) {
+            await enviarGestao({ tipo: "pilotos", acao: "criar", nome: p.nome, id_piloto: p.id_piloto || "", id: p.id_piloto || "", apelido: "", campeonatos: campeonato, vinculos: [campeonato] });
+        } else {
+            const vinc = new Set(vinculosPiloto(existente));
+            vinc.add(campeonato);
+            await enviarGestao({ tipo: "pilotos", acao: "editar", nomeAtual: getPilotoCampo(existente, "nome"), nome: getPilotoCampo(existente, "nome"), id_piloto: getPilotoCampo(existente, "id_piloto", "id"), id: getPilotoCampo(existente, "id_piloto", "id"), apelido: getPilotoCampo(existente, "apelido"), campeonatos: Array.from(vinc).join(", "), vinculos: Array.from(vinc) });
+        }
+        await enviarResultado({ tipo: "resultados", campeonato, etapa, piloto: p.nome, posicao: p.pos, pontos: p.pontos, data });
+    }
+    alert(`✅ Importação concluída com ${selecionados.length} piloto(s).`);
+    document.getElementById("btnConfirmarImportacao").style.display = "none";
+}
+
 function abrirGestao() {
     show("gestao");
     renderGestao();
