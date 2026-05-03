@@ -246,7 +246,7 @@ function getCampeonatoFirestoreRef(campeonato) {
 
     return {
         campeonatoDocId,
-        ref: firestore.collection("campeonado").doc(campeonatoDocId)
+        ref: firestore.collection("campeonato").doc(campeonatoDocId)
     };
 }
 
@@ -412,7 +412,7 @@ async function prepararDocumentoCampeonato(campeonato) {
         id: campeonatoDocId,
         nome: campeonato,
         atualizadoEmISO: new Date().toISOString(),
-        estrutura: `campeonado/${campeonatoDocId}`
+        estrutura: `campeonato/${campeonatoDocId}`
     }, { merge: true });
 
     return {
@@ -496,12 +496,12 @@ async function salvarArquivoSemPreviewNoFirestore({
         tipoArquivo: cfg.tipo,
         nomeArquivo: backupPayload.nomeArquivo || "",
         caminhoBackup: `backups_importacao/${backupId}`,
-        caminhoFirestore: `campeonado/${campeonatoDocId}/${destino}/${docId}`,
+        caminhoFirestore: `campeonato/${campeonatoDocId}/${destino}/${docId}`,
         criadoEmISO: new Date().toISOString(),
         atualizadoEmISO: new Date().toISOString()
     }), { merge: true });
 
-    return `campeonado/${campeonatoDocId}/${destino}/${docId}`;
+    return `campeonato/${campeonatoDocId}/${destino}/${docId}`;
 }
 
 async function salvarPilotoGlobalNoFirestore(p, campeonato) {
@@ -581,7 +581,7 @@ async function salvarSelecionadosNoFirestore({
         resultadoDocId,
         atualizadoEmISO: agoraISO,
         caminhoBackup: backupId ? `backups_importacao/${backupId}` : "",
-        caminhoFirestore: `campeonado/${campeonatoDocId}/resultado_final/${resultadoDocId}`
+        caminhoFirestore: `campeonato/${campeonatoDocId}/resultado_final/${resultadoDocId}`
     }), { merge: true });
 
     await salvarPilotosImportadosNoFirestore({
@@ -654,7 +654,7 @@ async function salvarSelecionadosNoFirestore({
     return {
         importId,
         resultadoDocId,
-        caminhoFirestore: `campeonado/${campeonatoDocId}/resultado_final/${resultadoDocId}`,
+        caminhoFirestore: `campeonato/${campeonatoDocId}/resultado_final/${resultadoDocId}`,
         subcollection: subcollectionName
     };
 }
