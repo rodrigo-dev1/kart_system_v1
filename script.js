@@ -231,11 +231,11 @@ function onTipoArquivoImportChange() {
 
 window.onTipoArquivoImportChange = onTipoArquivoImportChange;
 
-function atualizarPreviewImportacaoAtual() {
+async function atualizarPreviewImportacaoAtual() {
     const campeonato = document.getElementById("imp_camp")?.value || "";
 
     if (IMPORTACAO_PREVIA.length && campeonato) {
-        recalcularPreviewImportacao(campeonato, true);
+        await marcarPilotosJaVinculadosAoCampeonato(campeonato, true);
     }
 }
 
@@ -284,6 +284,125 @@ function toFirestoreSafe(value) {
     }
 
     return String(value);
+}
+
+function tempoParaSegundosJS(valor) {
+    if (valor === undefined || valor === null || valor === "") return null;
+
+    if (typeof valor === "number") {
+        return Number.isFinite(valor) ? valor : null;
+    }
+
+    const texto = String(valor).trim().replace(",", ".");
+
+    if (!texto) return null;
+
+    if (/^\d+:\d{2}(\.\d+)?$/.test(texto)) {
+        const partes = texto.split(":");
+        const minutos = Number(partes[0]);
+        const segundos = Number(partes[1]);
+
+        if (Number.isFinite(minutos) && Number.isFinite(segundos)) {
+            return Number((minutos * 60 + segundos).toFixed(3));
+        }
+
+        return null;
+    }
+
+    if (/^\d+(\.\d+)?$/.test(texto)) {
+        const segundos = Number(texto);
+        return Number.isFinite(segundos) ? segundos : null;
+    }
+
+    return null;
+}
+
+function obterMelhorTempoSegundos(item) {
+    const porCampoNumerico = tempoParaSegundosJS(item.melhor_tempo_segundos);
+
+    if (porCampoNumerico !== null) return porCampoNumerico;
+
+    return tempoParaSegundosJS(item.melhor_tempo);
+}
+
+function extrairCampeonatosDoPilotoExistente(data) {
+    const bruto = data?.campeonatos || data?.vinculos || [];
+
+    if (Array.isArray(bruto)) {
+        return bruto.map(v => String(v || "").trim()).filter(Boolean);
+    }
+
+    return String(bruto || "")
+        .split(",")
+        .map(v => v.trim())
+        .filter(Boolean);
+}
+
+async function marcarPilotosJaVinculadosAoCampeonato(campeonato, exibirHint = true) {
+    if (!campeonato || !IMPORTACAO_PREVIA.length) return;
+
+    const status = document.getElementById("statusImport");
+    const cfg = getTipoArquivoSelecionado();
+    const tipoArquivo = cfg?.tipo || IMPORTACAO_PREVIA[0]?.tipoArquivo || "";
+    const deveCalcular = tipoArquivo === "resultado_final" || tipoArquivo === "classificacao";
+
+    try {
+        if (status) {
+            status.innerHTML = "⏳ Verificando pilotos já vinculados ao campeonato no Firestore...";
+        }
+
+        for (const item of IMPORTACAO_PREVIA) {
+            const idPiloto = String(item.driver_id || item.id_piloto || "").trim();
+
+            item.checked = false;
+
+            if (!idPiloto) {
+                item.status = "Sem id_piloto no arquivo";
+                continue;
+            }
+
+            const pilotoDocId = normalizarDocId(idPiloto);
+            const pilotoDoc = await firestore.collection("Pilotos").doc(pilotoDocId).get();
+
+            if (!pilotoDoc.exists) {
+                item.status = "Será cadastrado automaticamente";
+                continue;
+            }
+
+            const dadosPiloto = pilotoDoc.data() || {};
+            const campeonatos = extrairCampeonatosDoPilotoExistente(dadosPiloto);
+
+            if (campeonatos.includes(campeonato)) {
+                item.checked = true;
+                item.status = "Piloto já está neste campeonato";
+            } else {
+                item.checked = false;
+                item.status = "Piloto existe; será vinculado ao campeonato se marcado";
+            }
+
+            if (!item.driver_name && dadosPiloto.nome) {
+                item.driver_name = dadosPiloto.nome;
+            }
+        }
+
+        recalcularPreviewImportacao(campeonato, exibirHint, deveCalcular);
+
+        const selecionados = IMPORTACAO_PREVIA.filter(i => i.checked && !i.conflitoId).length;
+
+        if (status) {
+            status.innerHTML = selecionados
+                ? `✅ ${selecionados} piloto(s) já estavam vinculados ao campeonato e foram marcados automaticamente.`
+                : "✅ Verificação concluída. Nenhum piloto do arquivo estava vinculado a este campeonato.";
+        }
+    } catch (e) {
+        console.error(e);
+
+        if (status) {
+            status.innerHTML = `⚠️ Não foi possível verificar os pilotos na collection Pilotos: ${htmlEscape(e.message || e)}`;
+        }
+
+        recalcularPreviewImportacao(campeonato, exibirHint, deveCalcular);
+    }
 }
 
 async function prepararDocumentoCampeonato(campeonato) {
@@ -385,19 +504,6 @@ async function salvarArquivoSemPreviewNoFirestore({
     return `campeonado/${campeonatoDocId}/${destino}/${docId}`;
 }
 
-function extrairCampeonatosDoPilotoExistente(data) {
-    const bruto = data?.campeonatos || data?.vinculos || [];
-
-    if (Array.isArray(bruto)) {
-        return bruto.map(v => String(v || "").trim()).filter(Boolean);
-    }
-
-    return String(bruto || "")
-        .split(",")
-        .map(v => v.trim())
-        .filter(Boolean);
-}
-
 async function salvarPilotoGlobalNoFirestore(p, campeonato) {
     const idPilotoBruto = String(p.driver_id || p.id_piloto || "").trim();
 
@@ -446,7 +552,8 @@ function selectEndFirebasePayload(item, contexto) {
         diff: item.diff || "",
         total_tempo: item.total_tempo || "",
         posicao_final2: Number(item.posicao_final2 || 0),
-        pontos: Number(item.pontos || 0)
+        pontos: Number(item.pontos || 0),
+        melhor_tempo_ponto: Number(item.melhor_tempo_ponto || 0)
     });
 }
 
@@ -506,6 +613,7 @@ async function salvarSelecionadosNoFirestore({
             kart_numero: p.kart_numero || "",
             melhor_tempo: p.melhor_tempo || "",
             melhor_tempo_segundos: p.melhor_tempo_segundos ?? null,
+            melhor_tempo_ponto: Number(p.melhor_tempo_ponto || 0),
             total_tempo_segundos: p.total_tempo_segundos ?? null,
             voltas: p.voltas ?? null,
             classe: p.classe || "",
@@ -531,7 +639,9 @@ async function salvarSelecionadosNoFirestore({
                 driver_name: p.driver_name || "",
                 posicao_geral_arquivo: Number(p.posicao_final || p.pos || 0),
                 posicao_final2: Number(p.posicao_final2 || 0),
-                pontos: Number(p.pontos || 0)
+                pontos: Number(p.pontos || 0),
+                melhor_tempo: p.melhor_tempo || "",
+                melhor_tempo_ponto: Number(p.melhor_tempo_ponto || 0)
             }))
         },
         ultimoTipoArquivoImportado: cfg.tipo,
@@ -624,6 +734,8 @@ async function fazerBackupEProcessar() {
             } else {
                 analisarHTML(conteudoRaw, campeonato, dataCorrida, cfg.tipo, false);
             }
+
+            await marcarPilotosJaVinculadosAoCampeonato(campeonato, true);
         }
 
         const selecionadosAntesDoCalculo = IMPORTACAO_PREVIA.filter(i => i.checked && !i.conflitoId);
@@ -635,7 +747,7 @@ async function fazerBackupEProcessar() {
             return;
         }
 
-        const deveCalcularPontos = cfg.tipo === "resultado_final";
+        const deveCalcularPontos = cfg.tipo === "resultado_final" || cfg.tipo === "classificacao";
         recalcularPreviewImportacao(campeonato, true, deveCalcularPontos);
 
         const selecionadosParaSalvar = IMPORTACAO_PREVIA
@@ -712,7 +824,7 @@ async function lancarAutomatico(encontrados, campeonato, dataCorrida) {
     return count;
 }
 
-function receberImportacaoPyScript(payloadJson) {
+async function receberImportacaoPyScript(payloadJson) {
     try {
         const payload = JSON.parse(payloadJson || "{}");
 
@@ -736,10 +848,14 @@ function receberImportacaoPyScript(payloadJson) {
 
             document.getElementById("btnConfirmarImportacao").style.display = "none";
 
-            const status = document.getElementById("statusImport");
+            if (campeonato) {
+                await marcarPilotosJaVinculadosAoCampeonato(campeonato, true);
+            } else {
+                const status = document.getElementById("statusImport");
 
-            if (status) {
-                status.innerHTML = "✅ Arquivo lido. Use a lista abaixo, marque os pilotos e clique em Salvar arquivo / gerar prévia para calcular os pontos.";
+                if (status) {
+                    status.innerHTML = "✅ Arquivo lido. Selecione o campeonato para marcar automaticamente pilotos já vinculados.";
+                }
             }
         }
     } catch (e) {
@@ -769,6 +885,7 @@ function normalizarRegistroImportacao(item) {
         classe: item.classe || "",
         melhor_tempo: item.melhor_tempo || "",
         melhor_tempo_segundos: item.melhor_tempo_segundos ?? "",
+        melhor_tempo_ponto: 0,
         total_tempo: item.total_tempo || "",
         total_tempo_segundos: item.total_tempo_segundos ?? "",
         diff: item.diff || "",
@@ -869,12 +986,16 @@ function analisarHTML(
             ? idDoNome[2]
             : textos.find(t => /[a-zA-ZÀ-ÿ]/.test(t) && t !== possivelId) || "";
 
+        const melhorTempo = textos.find(t => /^\d+:\d{2}([.,]\d+)?$/.test(t)) || "";
+
         if (!nome) return;
 
         encontrados.push({
             driver_name: nome,
             driver_id: possivelId,
-            posicao_final: pos
+            posicao_final: pos,
+            melhor_tempo: melhorTempo,
+            melhor_tempo_segundos: tempoParaSegundosJS(melhorTempo)
         });
     });
 
@@ -891,13 +1012,22 @@ function recalcularPreviewImportacao(campeonato, exibirHint = false, calcularPon
     IMPORTACAO_PREVIA = (IMPORTACAO_PREVIA.length ? IMPORTACAO_PREVIA : [])
         .sort((a, b) => (a.posGeral || 9999) - (b.posGeral || 9999));
 
+    const cfg = getTipoArquivoSelecionado() ||
+        TIPOS_ARQUIVO.find(t => t.tipo === IMPORTACAO_PREVIA[0]?.tipoArquivo);
+
+    const tipoArquivo = cfg?.tipo || IMPORTACAO_PREVIA[0]?.tipoArquivo || "";
+
     const selecionadosOrdenados = IMPORTACAO_PREVIA
         .filter(i => i.checked && !i.conflitoId)
         .sort((a, b) => a.posGeral - b.posGeral);
 
     const deveCalcularPontos = calcularPontos && selecionadosOrdenados.length > 0;
 
-    if (deveCalcularPontos) {
+    IMPORTACAO_PREVIA.forEach(item => {
+        item.melhor_tempo_ponto = 0;
+    });
+
+    if (tipoArquivo === "resultado_final" && deveCalcularPontos) {
         const rankPorItem = new Map();
         let ultimoPos = null;
         let rankAtual = 0;
@@ -928,6 +1058,15 @@ function recalcularPreviewImportacao(campeonato, exibirHint = false, calcularPon
         });
 
         IMPORTACAO_PREVIA_GERADA = true;
+    } else if (tipoArquivo === "classificacao" && deveCalcularPontos) {
+        IMPORTACAO_PREVIA.forEach(item => {
+            item.posicao_final2 = 0;
+            item.posCampeonato = 0;
+            item.pontos = 0;
+            item.origemPontuacao = "Aguardando melhor tempo";
+        });
+
+        IMPORTACAO_PREVIA_GERADA = true;
     } else {
         IMPORTACAO_PREVIA.forEach(item => {
             item.posicao_final2 = 0;
@@ -939,8 +1078,31 @@ function recalcularPreviewImportacao(campeonato, exibirHint = false, calcularPon
         IMPORTACAO_PREVIA_GERADA = false;
     }
 
-    const cfg = getTipoArquivoSelecionado() ||
-        TIPOS_ARQUIVO.find(t => t.tipo === IMPORTACAO_PREVIA[0]?.tipoArquivo);
+    if (deveCalcularPontos && selecionadosOrdenados.length) {
+        const temposValidos = selecionadosOrdenados
+            .map(item => ({
+                item,
+                segundos: obterMelhorTempoSegundos(item)
+            }))
+            .filter(x => x.segundos !== null && Number.isFinite(x.segundos));
+
+        if (temposValidos.length) {
+            const menorTempo = Math.min(...temposValidos.map(x => x.segundos));
+
+            temposValidos.forEach(({ item, segundos }) => {
+                item.melhor_tempo_ponto = segundos === menorTempo ? 1 : 0;
+
+                if (tipoArquivo === "classificacao" && item.melhor_tempo_ponto === 1) {
+                    item.pontos = 1;
+                    item.origemPontuacao = "1 ponto pelo melhor tempo";
+                }
+
+                if (tipoArquivo === "resultado_final" && item.melhor_tempo_ponto === 1) {
+                    item.origemPontuacao = `${item.origemPontuacao || "Pontuação"} + melhor tempo`;
+                }
+            });
+        }
+    }
 
     const titulo = cfg?.tipo === "classificacao" ? "Classificação" : "Resultado Final";
     const tituloEtapa = IMPORTACAO_PREVIA_GERADA ? "Prévia de Importação" : "Seleção de Pilotos";
@@ -961,6 +1123,7 @@ function recalcularPreviewImportacao(campeonato, exibirHint = false, calcularPon
                     <th>Pos. geral</th>
                     <th>Pos. importação</th>
                     <th>Pontos</th>
+                    <th>Melhor tempo?</th>
                     <th>Kart</th>
                     <th>Melhor tempo</th>
                     <th>Voltas</th>
@@ -971,7 +1134,8 @@ function recalcularPreviewImportacao(campeonato, exibirHint = false, calcularPon
     IMPORTACAO_PREVIA.forEach((i, idx) => {
         const disabled = i.conflitoId ? "disabled" : "";
         const posicaoCalculada = i.posicao_final2 ? i.posicao_final2 : "-";
-        const pontosCalculados = i.posicao_final2 ? i.pontos : "-";
+        const pontosCalculados = i.pontos || i.pontos === 0 ? i.pontos : "-";
+        const melhorTempoPonto = Number(i.melhor_tempo_ponto || 0);
 
         h += `
             <tr>
@@ -989,6 +1153,7 @@ function recalcularPreviewImportacao(campeonato, exibirHint = false, calcularPon
                 <td>${htmlEscape(i.posicao_final || i.pos || "-")}</td>
                 <td>${posicaoCalculada}</td>
                 <td>${pontosCalculados}</td>
+                <td>${melhorTempoPonto}</td>
                 <td>${htmlEscape(i.kart_numero || "-")}</td>
                 <td>${htmlEscape(i.melhor_tempo || "-")}</td>
                 <td>${htmlEscape(i.voltas || "-")}</td>
@@ -1006,8 +1171,9 @@ function recalcularPreviewImportacao(campeonato, exibirHint = false, calcularPon
         if (IMPORTACAO_PREVIA_GERADA) {
             h += `
                 <p class='hint'>
-                    Pontuação recalculada automaticamente somente com os pilotos marcados.
-                    Selecionados: ${selecionadosOrdenados.length}
+                    Cálculo feito apenas com os pilotos marcados.
+                    Selecionados: ${selecionadosOrdenados.length}.
+                    O campo "Melhor tempo?" recebe 1 para o menor Melhor Tempo entre os selecionados e 0 para os demais.
                 </p>
             `;
         } else {
@@ -1015,6 +1181,7 @@ function recalcularPreviewImportacao(campeonato, exibirHint = false, calcularPon
                 <p class='hint'>
                     Marque os pilotos que serão importados.
                     Para Resultado Final, a posição e os pontos serão recalculados automaticamente.
+                    Para Classificação, o piloto com menor Melhor Tempo entre os selecionados recebe 1 ponto.
                 </p>
             `;
         }
@@ -1033,7 +1200,10 @@ function toggleSelecionadoImport(idx) {
 
     const tipoArquivo = cfg?.tipo || IMPORTACAO_PREVIA[idx]?.tipoArquivo || "";
 
-    const deveRecalcularAutomatico = tipoArquivo === "resultado_final" || IMPORTACAO_PREVIA_GERADA;
+    const deveRecalcularAutomatico =
+        tipoArquivo === "resultado_final" ||
+        tipoArquivo === "classificacao" ||
+        IMPORTACAO_PREVIA_GERADA;
 
     recalcularPreviewImportacao(
         campeonato,
@@ -1068,7 +1238,7 @@ async function confirmarImportacao() {
     if (!data) return alert("Informe a data da corrida!");
     if (!cfg || !cfg.usaPreview) return alert("Selecione Resultado final ou Classificação para importar pilotos.");
 
-    const deveCalcularPontos = cfg.tipo === "resultado_final";
+    const deveCalcularPontos = cfg.tipo === "resultado_final" || cfg.tipo === "classificacao";
     recalcularPreviewImportacao(campeonato, true, deveCalcularPontos);
 
     const selecionados = IMPORTACAO_PREVIA
