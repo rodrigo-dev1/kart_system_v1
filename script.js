@@ -2280,12 +2280,18 @@ async function renderRankingFirestore() {
         const totalGeral = ranking.reduce((acc, item) => acc + Number(item.pontos_total || 0), 0);
 
         let h = `
-            <table>
-                <tr>
-                    <th>Pos</th>
-                    <th>Piloto</th>
-                    <th>Pts</th>
-                </tr>
+            <div style="width:100%; max-width:100%; overflow:hidden;">
+                <table style="width:100%; table-layout:fixed;">
+                    <colgroup>
+                        <col style="width:18%;">
+                        <col style="width:52%;">
+                        <col style="width:30%;">
+                    </colgroup>
+                    <tr>
+                        <th>Pos</th>
+                        <th>Piloto</th>
+                        <th>Pts</th>
+                    </tr>
         `;
 
         ranking.forEach((p, i) => {
@@ -2295,9 +2301,9 @@ async function renderRankingFirestore() {
 
             h += `
                 <tr onclick="toggleHistoricoLinhaFirestore(${i})" style="cursor:pointer;">
-                    <td>${i + 1}º</td>
-                    <td>${htmlEscape(p.driver_name || "-")}</td>
-                    <td>
+                    <td style="word-break:break-word;">${i + 1}º</td>
+                    <td style="word-break:break-word;">${htmlEscape(p.driver_name || "-")}</td>
+                    <td style="word-break:break-word;">
                         ${p.pontos_total}
                         <small style="color:#aaa; font-size:11px;">(${percentual}%)</small>
                     </td>
@@ -2306,7 +2312,10 @@ async function renderRankingFirestore() {
             `;
         });
 
-        h += "</table>";
+        h += `
+                </table>
+            </div>
+        `;
 
         content.innerHTML = h;
 
@@ -2328,17 +2337,22 @@ async function renderRankingFirestore() {
 
 function montarTabelaResumoRankingFirestore(item) {
     return `
-        <div style="max-width:100%; overflow-x:auto; margin-bottom:10px;">
-            <table style="font-size:12px; min-width:620px;">
+        <div style="width:100%; max-width:100%; overflow:hidden; margin-bottom:10px;">
+            <table style="width:100%; table-layout:fixed; font-size:11px;">
+                <colgroup>
+                    <col style="width:33.33%;">
+                    <col style="width:33.33%;">
+                    <col style="width:33.33%;">
+                </colgroup>
                 <tr>
-                    <th>Pontos posição corrida</th>
-                    <th>Melhor volta corrida</th>
-                    <th>Melhor volta classificação</th>
+                    <th style="white-space:normal; word-break:break-word;">Pts corrida</th>
+                    <th style="white-space:normal; word-break:break-word;">MV corrida</th>
+                    <th style="white-space:normal; word-break:break-word;">MV classif.</th>
                 </tr>
                 <tr>
-                    <td>${Number(item.pontos_posicao_corrida || 0)}</td>
-                    <td>${Number(item.pontos_melhor_tempo_corrida || 0)}</td>
-                    <td>${Number(item.pontos_melhor_tempo_classificacao || 0)}</td>
+                    <td style="white-space:normal; word-break:break-word;">${Number(item.pontos_posicao_corrida || 0)}</td>
+                    <td style="white-space:normal; word-break:break-word;">${Number(item.pontos_melhor_tempo_corrida || 0)}</td>
+                    <td style="white-space:normal; word-break:break-word;">${Number(item.pontos_melhor_tempo_classificacao || 0)}</td>
                 </tr>
             </table>
         </div>
@@ -2364,26 +2378,35 @@ function montarTabelaDetalhesRankingFirestore(detalhes) {
     });
 
     return `
-        <div style="max-width:100%; overflow-x:auto;">
-            <table style="margin-top:10px; font-size:12px; min-width:860px;">
+        <div style="width:100%; max-width:100%; overflow:hidden;">
+            <table style="width:100%; table-layout:fixed; margin-top:10px; font-size:10.5px;">
+                <colgroup>
+                    <col style="width:20%;">
+                    <col style="width:17%;">
+                    <col style="width:10%;">
+                    <col style="width:13%;">
+                    <col style="width:18%;">
+                    <col style="width:10%;">
+                    <col style="width:12%;">
+                </colgroup>
                 <tr>
-                    <th>Tipo</th>
-                    <th>Data</th>
-                    <th>Etapa</th>
-                    <th>Posição</th>
-                    <th>Melhor tempo</th>
-                    <th>Pts</th>
-                    <th>Melhor tempo?</th>
+                    <th style="white-space:normal; word-break:break-word;">Tipo</th>
+                    <th style="white-space:normal; word-break:break-word;">Data</th>
+                    <th style="white-space:normal; word-break:break-word;">Et.</th>
+                    <th style="white-space:normal; word-break:break-word;">Pos.</th>
+                    <th style="white-space:normal; word-break:break-word;">Melhor tempo</th>
+                    <th style="white-space:normal; word-break:break-word;">Pts</th>
+                    <th style="white-space:normal; word-break:break-word;">MV?</th>
                 </tr>
                 ${detalhesOrdenados.map(d => `
                     <tr>
-                        <td>${htmlEscape(d.tipo || "-")}</td>
-                        <td>${htmlEscape(d.dataCorrida || "-")}</td>
-                        <td>${htmlEscape(d.etapa || "-")}</td>
-                        <td>${htmlEscape(d.posicao_final2 || d.posicao_grafico || "-")}</td>
-                        <td>${htmlEscape(d.melhor_tempo || "-")}</td>
-                        <td>${Number(d.pontos || 0)}</td>
-                        <td>${Number(d.melhor_tempo_ponto || 0)}</td>
+                        <td style="white-space:normal; word-break:break-word;">${htmlEscape(d.tipo || "-")}</td>
+                        <td style="white-space:normal; word-break:break-word;">${htmlEscape(d.dataCorrida || "-")}</td>
+                        <td style="white-space:normal; word-break:break-word;">${htmlEscape(d.etapa || "-")}</td>
+                        <td style="white-space:normal; word-break:break-word;">${htmlEscape(d.posicao_final2 || d.posicao_grafico || "-")}</td>
+                        <td style="white-space:normal; word-break:break-word;">${htmlEscape(d.melhor_tempo || "-")}</td>
+                        <td style="white-space:normal; word-break:break-word;">${Number(d.pontos || 0)}</td>
+                        <td style="white-space:normal; word-break:break-word;">${Number(d.melhor_tempo_ponto || 0)}</td>
                     </tr>
                 `).join("")}
             </table>
@@ -2438,12 +2461,12 @@ function gerarGraficoHistoricoFirestoreSVG(detalhes) {
         return "<p class='muted'>Sem posições suficientes para gerar o gráfico.</p>";
     }
 
-    const w = 720;
-    const h = 260;
-    const ml = 42;
-    const mr = 18;
+    const w = 620;
+    const h = 240;
+    const ml = 40;
+    const mr = 14;
     const mt = 34;
-    const mb = 44;
+    const mb = 38;
 
     const maxPos = Math.max(...posicoes, 1);
     const stepX = (w - ml - mr) / Math.max(pontos.length - 1, 1);
@@ -2470,7 +2493,7 @@ function gerarGraficoHistoricoFirestoreSVG(detalhes) {
             if (valor === null || !Number.isFinite(Number(valor))) return "";
 
             return `
-                <circle cx="${x(i)}" cy="${y(valor)}" r="4" fill="${cor}">
+                <circle cx="${x(i)}" cy="${y(valor)}" r="3.6" fill="${cor}">
                     <title>${campo === "resultado" ? "Resultado Final" : "Classificação"} • Etapa ${p.etapa} • P${valor}</title>
                 </circle>
             `;
@@ -2481,28 +2504,28 @@ function gerarGraficoHistoricoFirestoreSVG(detalhes) {
 
     for (let p = 1; p <= maxPos; p++) {
         linhasGrade += `<line x1="${ml}" y1="${y(p)}" x2="${w - mr}" y2="${y(p)}" stroke="#2e3542" stroke-width="1"/>`;
-        linhasGrade += `<text x="8" y="${y(p) + 4}" fill="#aaa" font-size="10">P${p}</text>`;
+        linhasGrade += `<text x="7" y="${y(p) + 4}" fill="#aaa" font-size="10">P${p}</text>`;
     }
 
     const labels = pontos.map((p, i) => `
-        <text x="${x(i)}" y="${h - 18}" fill="#aaa" font-size="10" text-anchor="middle">E${htmlEscape(p.etapa)}</text>
-        <text x="${x(i)}" y="${h - 6}" fill="#777" font-size="9" text-anchor="middle">${htmlEscape(String(p.dataCorrida).slice(5))}</text>
+        <text x="${x(i)}" y="${h - 17}" fill="#aaa" font-size="10" text-anchor="middle">E${htmlEscape(p.etapa)}</text>
+        <text x="${x(i)}" y="${h - 5}" fill="#777" font-size="8.5" text-anchor="middle">${htmlEscape(String(p.dataCorrida).slice(5))}</text>
     `).join("");
 
     const linhaResultado = montarPolyline("resultado");
     const linhaClassificacao = montarPolyline("classificacao");
 
     return `
-        <div style="max-width:100%; overflow-x:auto;">
+        <div style="width:100%; max-width:100%; overflow:hidden;">
             <svg viewBox="0 0 ${w} ${h}" preserveAspectRatio="xMidYMid meet"
-                 style="display:block; width:100%; min-width:680px; max-width:100%; height:auto; background:#141923; border-radius:8px;">
+                 style="display:block; width:100%; max-width:100%; height:auto; background:#141923; border-radius:8px;">
                 ${linhasGrade}
 
-                <text x="${ml}" y="18" fill="#ff4b4b" font-size="11">● Resultado Final</text>
-                <text x="${ml + 140}" y="18" fill="#42a5f5" font-size="11">● Classificação</text>
+                <text x="${ml}" y="18" fill="#ff4b4b" font-size="11">● Resultado</text>
+                <text x="${ml + 115}" y="18" fill="#42a5f5" font-size="11">● Classificação</text>
 
-                ${linhaResultado ? `<polyline points="${linhaResultado}" fill="none" stroke="#ff4b4b" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"/>` : ""}
-                ${linhaClassificacao ? `<polyline points="${linhaClassificacao}" fill="none" stroke="#42a5f5" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"/>` : ""}
+                ${linhaResultado ? `<polyline points="${linhaResultado}" fill="none" stroke="#ff4b4b" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/>` : ""}
+                ${linhaClassificacao ? `<polyline points="${linhaClassificacao}" fill="none" stroke="#42a5f5" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/>` : ""}
 
                 ${montarCirculos("resultado", "#ff4b4b")}
                 ${montarCirculos("classificacao", "#42a5f5")}
@@ -2551,19 +2574,19 @@ function toggleHistoricoLinhaFirestore(idx) {
     const grafico = gerarGraficoHistoricoFirestoreSVG(detalhes);
 
     row.innerHTML = `
-        <td colspan="3">
-            <div style="padding:10px 4px; max-width:100%; overflow:hidden;">
-                <div class="hint" style="margin-bottom:8px;">
+        <td colspan="3" style="width:100%; max-width:100%; overflow:hidden; box-sizing:border-box;">
+            <div style="width:100%; max-width:100%; padding:10px 4px; overflow:hidden; box-sizing:border-box;">
+                <div class="hint" style="margin-bottom:8px; white-space:normal; word-break:break-word;">
                     <strong>${htmlEscape(item.driver_name || "-")}</strong>
                 </div>
 
                 ${tabelaResumo}
 
-                <div style="display:flex; gap:8px; margin:10px 0; flex-wrap:wrap;">
+                <div style="display:flex; gap:8px; margin:10px 0; flex-wrap:wrap; width:100%; max-width:100%; overflow:hidden;">
                     <button
                         id="ranking_fb_btn_relacao_${idx}"
                         onclick="event.stopPropagation(); setRankingFirestoreDetalheTab(${idx}, 'relacao')"
-                        style="width:auto; padding:8px 12px; margin:0; background:#ff4b4b;"
+                        style="width:auto; max-width:48%; padding:8px 12px; margin:0; background:#ff4b4b;"
                     >
                         Relação
                     </button>
@@ -2571,17 +2594,17 @@ function toggleHistoricoLinhaFirestore(idx) {
                     <button
                         id="ranking_fb_btn_grafico_${idx}"
                         onclick="event.stopPropagation(); setRankingFirestoreDetalheTab(${idx}, 'grafico')"
-                        style="width:auto; padding:8px 12px; margin:0; background:#252a34; border:1px solid #3a4252;"
+                        style="width:auto; max-width:48%; padding:8px 12px; margin:0; background:#252a34; border:1px solid #3a4252;"
                     >
                         Gráfico
                     </button>
                 </div>
 
-                <div id="ranking_fb_relacao_${idx}" style="display:block;">
+                <div id="ranking_fb_relacao_${idx}" style="display:block; width:100%; max-width:100%; overflow:hidden;">
                     ${tabelaDetalhes}
                 </div>
 
-                <div id="ranking_fb_grafico_${idx}" style="display:none;">
+                <div id="ranking_fb_grafico_${idx}" style="display:none; width:100%; max-width:100%; overflow:hidden;">
                     ${grafico}
                 </div>
             </div>
@@ -2593,3 +2616,4 @@ function toggleHistoricoLinhaFirestore(idx) {
 }
 
 fetchData();
+
