@@ -2189,7 +2189,13 @@ function somarClassificacaoRankingFirestore(rankingMap, item, etapaInfo) {
         Number(item.pontos || 0)
     );
 
-    const posicaoGrafico = Number(item.posicao_final2 || item.posicao_geral_arquivo || 0);
+    const posicaoLargadaCampeonato = Number(
+        item.posicao_largada_campeonato ||
+        item.posicao_classificacao_campeonato ||
+        item.posicao_final2 ||
+        item.posicao_geral_arquivo ||
+        0
+    );
 
     linha.driver_id = linha.driver_id || driverId;
     linha.driver_name = linha.driver_name !== "-" ? linha.driver_name : driverName;
@@ -2201,16 +2207,67 @@ function somarClassificacaoRankingFirestore(rankingMap, item, etapaInfo) {
         tipo: "Classificação",
         etapa: etapaInfo.etapa || "-",
         dataCorrida: etapaInfo.dataCorrida || "-",
-        posicao_final2: item.posicao_final2 || "-",
-        posicao_grafico: posicaoGrafico,
+        posicao_final2: posicaoLargadaCampeonato || "-",
+        posicao_grafico: posicaoLargadaCampeonato,
         pontos: bonusMelhorTempoClassificacao,
         melhor_tempo: item.melhor_tempo || "-",
         melhor_tempo_ponto: bonusMelhorTempoClassificacao
     });
 }
 
+async function buscarIdsPilotosDoCampeonatoFirestore(campeonatoNome) {
+    const ids = new Set();
+
+    try {
+        const snapshot = await firestore
+            .collection(COLLECTION_PILOTOS)
+            .where("campeonatos", "array-contains", campeonatoNome)
+            .get();
+
+        snapshot.forEach(doc => {
+            const data = doc.data() || {};
+            const driverId = String(data.driver_id || data.id_piloto || doc.id || "").trim();
+
+            if (driverId) {
+                ids.add(driverId);
+                ids.add(normalizarDocId(driverId));
+            }
+        });
+    } catch (e) {
+        console.warn("Não foi possível buscar pilotos do campeonato na collection Pilotos:", e);
+    }
+
+    return ids;
+}
+
+function obterPosicaoArquivo(item) {
+    const candidatos = [
+        item.posicao_geral_arquivo,
+        item.posicao_final,
+        item.pos,
+        item.posicao,
+        item.posicao_final2
+    ];
+
+    for (const valor of candidatos) {
+        const n = Number(valor);
+
+        if (Number.isFinite(n) && n > 0) {
+            return n;
+        }
+    }
+
+    return 999999;
+}
+
 async function buscarRankingFirestorePorCampeonato(campeonatoDocId) {
     const campRef = firestore.collection(COLLECTION_CAMPEONATOS).doc(campeonatoDocId);
+    const campDoc = await campRef.get();
+    const campData = campDoc.exists ? campDoc.data() || {} : {};
+    const campeonatoNome = campData.nome || campeonatoDocId;
+
+    const idsPilotosCampeonato = await buscarIdsPilotosDoCampeonatoFirestore(campeonatoNome);
+
     const resultadosSnapshot = await campRef.collection("resultado_final").get();
 
     const rankingMap = new Map();
@@ -2231,13 +2288,41 @@ async function buscarRankingFirestorePorCampeonato(campeonatoDocId) {
 
         const classificacaoSnapshot = await resultadoRef.collection("classificacao").get();
 
-        classificacaoSnapshot.forEach(pilotoDoc => {
-            somarClassificacaoRankingFirestore(
-                rankingMap,
-                pilotoDoc.data() || {},
-                etapaInfo
-            );
+        let classificacaoDocs = classificacaoSnapshot.docs.map(doc => {
+            const data = doc.data() || {};
+            const driverId = String(data.driver_id || data.id_piloto || doc.id || "").trim();
+
+            return {
+                docId: doc.id,
+                driverId,
+                data
+            };
         });
+
+        if (idsPilotosCampeonato.size) {
+            classificacaoDocs = classificacaoDocs.filter(item =>
+                idsPilotosCampeonato.has(item.driverId) ||
+                idsPilotosCampeonato.has(normalizarDocId(item.driverId)) ||
+                idsPilotosCampeonato.has(item.docId)
+            );
+        }
+
+        classificacaoDocs
+            .sort((a, b) =>
+                obterPosicaoArquivo(a.data) - obterPosicaoArquivo(b.data) ||
+                String(a.data.driver_name || "").localeCompare(String(b.data.driver_name || ""))
+            )
+            .forEach((item, idx) => {
+                somarClassificacaoRankingFirestore(
+                    rankingMap,
+                    {
+                        ...item.data,
+                        posicao_largada_campeonato: idx + 1,
+                        posicao_classificacao_campeonato: idx + 1
+                    },
+                    etapaInfo
+                );
+            });
     }
 
     return Array.from(rankingMap.values())
@@ -2381,11 +2466,10 @@ function montarTabelaDetalhesRankingFirestore(detalhes) {
         <div style="width:100%; max-width:100%; overflow:hidden;">
             <table style="width:100%; table-layout:fixed; margin-top:10px; font-size:10.5px;">
                 <colgroup>
-                    <col style="width:24%;">
+                    <col style="width:28%;">
                     <col style="width:12%;">
                     <col style="width:16%;">
-                    <col style="width:22%;">
-                    <col style="width:12%;">
+                    <col style="width:30%;">
                     <col style="width:14%;">
                 </colgroup>
                 <tr>
@@ -2394,7 +2478,6 @@ function montarTabelaDetalhesRankingFirestore(detalhes) {
                     <th style="white-space:normal; word-break:break-word;">Pos.</th>
                     <th style="white-space:normal; word-break:break-word;">Melhor tempo</th>
                     <th style="white-space:normal; word-break:break-word;">Pts</th>
-                    <th style="white-space:normal; word-break:break-word;">MV?</th>
                 </tr>
                 ${detalhesOrdenados.map(d => `
                     <tr>
@@ -2403,7 +2486,6 @@ function montarTabelaDetalhesRankingFirestore(detalhes) {
                         <td style="white-space:normal; word-break:break-word;">${htmlEscape(d.posicao_final2 || d.posicao_grafico || "-")}</td>
                         <td style="white-space:normal; word-break:break-word;">${htmlEscape(d.melhor_tempo || "-")}</td>
                         <td style="white-space:normal; word-break:break-word;">${Number(d.pontos || 0)}</td>
-                        <td style="white-space:normal; word-break:break-word;">${Number(d.melhor_tempo_ponto || 0)}</td>
                     </tr>
                 `).join("")}
             </table>
@@ -2613,3 +2695,4 @@ function toggleHistoricoLinhaFirestore(idx) {
 }
 
 fetchData();
+
