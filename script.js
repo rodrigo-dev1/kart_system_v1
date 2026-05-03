@@ -128,13 +128,9 @@ function onTipoArquivoImportChange() {
     const label = document.getElementById("labelFileImportacao");
     const fileInput = document.getElementById("fileImportacaoUnico");
     const pyStatus = document.getElementById("pyStatus");
-    const pyInfo = document.getElementById("pyPreviewInfo");
-    const pyTable = document.getElementById("pyPreviewTable");
 
     limparEstadoImportacao();
     if (fileInput) fileInput.value = "";
-    if (pyInfo) pyInfo.innerHTML = "";
-    if (pyTable) pyTable.innerHTML = "";
 
     if (!cfg) {
         if (label) label.textContent = "Arquivo";
@@ -145,7 +141,7 @@ function onTipoArquivoImportChange() {
     if (label) label.textContent = `Arquivo — ${cfg.label}`;
     if (pyStatus) {
         pyStatus.innerHTML = cfg.usaPreview
-            ? `✅ Tipo selecionado: ${cfg.label}. Escolha o arquivo para gerar a prévia com PyScript.`
+            ? `✅ Tipo selecionado: ${cfg.label}. Escolha o arquivo para liberar a lista única de importação abaixo.`
             : `ℹ️ Tipo selecionado: ${cfg.label}. Este arquivo será salvo como backup no Firebase, sem prévia de pilotos.`;
     }
 }
@@ -270,7 +266,7 @@ function receberImportacaoPyScript(payloadJson) {
             montarImportacaoPreviaDoArquivo(IMPORTACAO_PYSCRIPT, campeonato, IMPORTACAO_PYSCRIPT_TIPO, true, false);
             document.getElementById("btnConfirmarImportacao").style.display = "none";
             const status = document.getElementById("statusImport");
-            if (status) status.innerHTML = "✅ Arquivo lido. Marque os pilotos e clique em Salvar arquivo / gerar prévia para calcular os pontos.";
+            if (status) status.innerHTML = "✅ Arquivo lido. Use a lista abaixo, marque os pilotos e clique em Salvar arquivo / gerar prévia para calcular os pontos.";
         }
     } catch (e) {
         console.error("Falha ao receber dados do PyScript:", e);

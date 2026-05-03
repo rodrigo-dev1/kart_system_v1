@@ -8,7 +8,6 @@ from typing import Optional
 import pandas as pd
 from js import document, window
 from pyodide.ffi.wrappers import add_event_listener
-from pyscript import HTML, display
 
 COLUNAS_RENAME = {
     "Pos": "posicao_final",
@@ -291,42 +290,6 @@ def serializar_para_js(df: pd.DataFrame, nome_arquivo: str, tipo_arquivo: str) -
         window.receberResultadoFinalPyScript(payload_json)
 
 
-def exibir_dataframe(df: pd.DataFrame, nome_arquivo: str, tipo_arquivo: str) -> None:
-    total_pilotos = len(df)
-    melhor_volta = df["melhor_tempo_segundos"].min() if "melhor_tempo_segundos" in df.columns else None
-    primeiro = df.iloc[0]["driver_name"] if total_pilotos and "driver_name" in df.columns else "-"
-
-    info_html = f"""
-    <div class="py-summary">
-        <div><strong>Tipo</strong><br>{label_tipo_arquivo(tipo_arquivo)}</div>
-        <div><strong>Arquivo</strong><br>{nome_arquivo}</div>
-        <div><strong>Pilotos lidos</strong><br>{total_pilotos}</div>
-        <div><strong>1º geral</strong><br>{primeiro}</div>
-        <div><strong>Melhor volta (s)</strong><br>{'-' if pd.isna(melhor_volta) else melhor_volta}</div>
-    </div>
-    """
-
-    colunas_preview = [
-        "driver_id",
-        "driver_name",
-        "posicao_final",
-        "kart_numero",
-        "voltas",
-        "total_tempo",
-        "melhor_tempo",
-        "diff",
-        "s1_melhor_vlt",
-        "s2_melhor_vlt",
-        "s3_melhor_vlt",
-        "sfspd_melhor_vlt",
-    ]
-    colunas_existentes = [c for c in colunas_preview if c in df.columns]
-    tabela_html = df[colunas_existentes].to_html(index=False, classes="pyscript-table", border=0, escape=True)
-
-    display(HTML(info_html), target="pyPreviewInfo", append=False)
-    display(HTML(tabela_html), target="pyPreviewTable", append=False)
-
-
 async def get_text_from_file(file) -> str:
     array_buffer = await file.arrayBuffer()
     data = array_buffer.to_bytes()
@@ -350,8 +313,6 @@ async def ler_arquivo_importacao(event) -> None:
 
         if file is None:
             set_html("pyStatus", "Selecione o tipo de arquivo e depois escolha o arquivo.")
-            set_html("pyPreviewInfo", "")
-            set_html("pyPreviewTable", "")
             window.IMPORTACAO_PYSCRIPT_JSON = ""
             return
 
@@ -359,28 +320,21 @@ async def ler_arquivo_importacao(event) -> None:
             LAST_DF = None
             window.IMPORTACAO_PYSCRIPT_JSON = ""
             set_html("pyStatus", "ℹ️ Este tipo de arquivo será salvo sem prévia de pilotos.")
-            set_html("pyPreviewInfo", "")
-            set_html("pyPreviewTable", "")
             return
 
         nome_arquivo = str(file.name)
         set_html("pyStatus", f"⏳ Lendo {nome_arquivo} com PyScript/Python...")
-        set_html("pyPreviewInfo", "")
-        set_html("pyPreviewTable", "")
 
         html = await get_text_from_file(file)
         df = carregar_tabela_corrida_html_texto(html, nome_arquivo, tipo_arquivo)
         LAST_DF = df
 
         serializar_para_js(df, nome_arquivo, tipo_arquivo)
-        exibir_dataframe(df, nome_arquivo, tipo_arquivo)
-        set_html("pyStatus", "✅ Leitura concluída. As checkboxes já foram liberadas abaixo. Marque os pilotos e clique em Salvar arquivo / gerar prévia para calcular pontos.")
+        set_html("pyStatus", f"✅ Leitura concluída: {len(df)} piloto(s) identificado(s). Use a lista única abaixo para marcar os pilotos e gerar a prévia.")
 
     except Exception as exc:
         LAST_DF = None
         set_html("pyStatus", f"❌ Erro ao ler arquivo com PyScript: {exc}")
-        set_html("pyPreviewInfo", "")
-        set_html("pyPreviewTable", "")
         window.IMPORTACAO_PYSCRIPT_JSON = ""
 
 
@@ -392,7 +346,7 @@ def inicializar() -> None:
         return
 
     add_event_listener(input_importacao, "change", ler_arquivo_importacao)
-    set_html("pyStatus", "✅ PyScript carregado. Selecione Resultado final ou Classificação e escolha o arquivo para visualizar o DataFrame.")
+    set_html("pyStatus", "✅ PyScript carregado. Selecione Resultado final ou Classificação e escolha o arquivo para liberar a lista de importação abaixo.")
 
 
 inicializar()
