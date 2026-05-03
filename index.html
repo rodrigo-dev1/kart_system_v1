@@ -6,6 +6,7 @@
     <title>Kart Admin System 🏎️</title>
 
     <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-database-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-firestore-compat.js"></script>
 
     <link rel="stylesheet" href="https://pyscript.net/releases/2024.3.1/core.css">
@@ -17,8 +18,10 @@
         .section { display: none; padding: 20px; }
         .active { display: block; }
         .navbar { position: fixed; bottom: 0; width: 100%; background: var(--card); display: flex; justify-content: space-around; padding: 10px 0; border-top: 2px solid var(--red); z-index: 1000; }
-        .nav-item { color: white; text-decoration: none; font-size: 11px; text-align: center; cursor: pointer; min-width: 48px; }
+        .nav-item { color: white; text-decoration: none; font-size: 11px; text-align: center; cursor: pointer; min-width: 50px; }
         input, select, textarea { width: 100%; padding: 12px; margin: 8px 0; background: #333; border: 1px solid #444; color: white; border-radius: 8px; box-sizing: border-box; }
+        input:disabled, select:disabled { opacity: 0.65; cursor: not-allowed; background: #24272f; }
+        select[multiple] { min-height: 120px; }
         button { width: 100%; padding: 15px; background: var(--red); border: none; color: white; font-weight: bold; border-radius: 8px; margin-top: 10px; cursor: pointer; }
         .form-card { background: var(--card); padding: 20px; border-radius: 15px; border: 1px solid #333; margin-bottom: 20px; }
         table { width: 100%; border-collapse: collapse; margin-top: 10px; background: var(--card); border-radius: 10px; overflow: hidden; font-size: 14px; }
@@ -39,7 +42,6 @@
         .arquivo-card small, .muted { color: #aaa; font-size: 11px; }
         .file-label { display: block; margin-top: 12px; color: #ffeb3b; font-size: 13px; font-weight: bold; }
         .hint { color: #aaa; font-size: 12px; margin: 0 0 10px 0; line-height: 1.4; }
-
         .py-preview-card { background: #151a22; border: 1px solid #394150; border-radius: 12px; padding: 12px; margin-top: 14px; }
         .py-status { color: #ffeb3b; font-size: 13px; margin: 8px 0; }
         .py-table-wrapper { max-height: 360px; overflow: auto; border-radius: 10px; border: 1px solid #333; }
@@ -47,30 +49,20 @@
         .pyscript-table th, .pyscript-table td { white-space: nowrap; padding: 8px; }
         .py-summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 8px; margin: 8px 0 12px 0; }
         .py-summary div { background: #252a34; border-radius: 8px; padding: 8px; font-size: 12px; }
+        .inline-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+        .inline-actions button { width: auto; padding: 10px 12px; margin-top: 8px; }
     </style>
 </head>
 <body>
 
-<div id="loading" style="padding: 20px; text-align: center;">Sincronizando boxes...</div>
+<div id="loading" style="padding: 20px; text-align: center;">Sincronizando Firebase...</div>
 
 <div id="dash" class="section active">
     <h2>🏆 Ranking</h2>
     <div class="form-card">
-        <select id="filtro_rank_camp" onchange="renderRanking()"></select>
+        <select id="filtro_rank_firebase_camp" onchange="renderRankingFirestore()"></select>
+        <div id="rankingFirestoreStatus" class="hint">Selecione um campeonato para carregar o ranking.</div>
     </div>
-    <div id="rankingContent"></div>
-</div>
-
-<div id="dash_firebase" class="section">
-    <h2>🔥 Ranking Firebase</h2>
-
-    <div class="form-card">
-        <select id="filtro_rank_firebase_camp" onchange="renderRankingFirestore()">
-            <option value="">Carregando campeonatos do Firebase...</option>
-        </select>
-    </div>
-
-    <div id="rankingFirestoreStatus" class="hint"></div>
     <div id="rankingFirestoreContent"></div>
 </div>
 
@@ -141,36 +133,31 @@
 
         <div id="secCampeonatos">
             <h3>Campeonatos</h3>
-            <input id="camp_nome" placeholder="Nome (obrigatório)">
+            <p class="hint">Para editar um campeonato existente, a chave/ID fica bloqueada. Altere apenas as informações descritivas.</p>
+            <input id="camp_nome" placeholder="Nome do campeonato (obrigatório para novo cadastro)">
             <input id="camp_descricao" placeholder="Descrição">
-            <input id="camp_data_inicio" type="date" placeholder="Data de inicio">
+            <input id="camp_data_inicio" type="date" placeholder="Data de início">
             <input id="camp_data_fim" type="date" placeholder="Data de fim">
-            <button onclick="salvarCampeonato()">Salvar campeonato</button>
-            <div id="feedbackCampeonato" class="feedback"></div>
-
-            <div class="piloto-card" style="align-items:flex-end;">
-                <div style="flex:1;">
-                    <label>Posição</label>
-                    <input id="pont_posicao" type="number" min="1" placeholder="posição">
-                </div>
-                <div style="flex:1;">
-                    <label>Pontos</label>
-                    <input id="pont_pontos" type="number" placeholder="pontos">
-                </div>
-                <button style="width:auto;" onclick="adicionarPontuacaoLinha()">+ Pontuação</button>
+            <div class="inline-actions">
+                <button onclick="salvarCampeonato()">Salvar campeonato</button>
+                <button onclick="limparFormularioCampeonato()" style="background:#2b3240; border:1px solid #3a4252;">Novo / limpar</button>
             </div>
-
-            <div id="listaPontuacoes"></div>
+            <div id="feedbackCampeonato" class="feedback"></div>
             <div id="listaCampeonatos" style="margin-top: 10px;"></div>
         </div>
 
         <div id="secPilotos" style="display:none;">
             <h3>Pilotos</h3>
+            <p class="hint">Para editar um piloto existente, o id_piloto fica bloqueado. Altere nome, apelido e campeonatos vinculados.</p>
             <input id="piloto_id" placeholder="id_piloto (obrigatório para novo cadastro)">
             <input id="piloto_nome" placeholder="Nome (obrigatório)">
             <input id="piloto_apelido" placeholder="Apelido">
-            <select id="piloto_campeonatos"></select>
-            <button onclick="salvarPiloto()">Salvar piloto</button>
+            <label class="file-label" for="piloto_campeonatos">Campeonatos vinculados</label>
+            <select id="piloto_campeonatos" multiple></select>
+            <div class="inline-actions">
+                <button onclick="salvarPiloto()">Salvar piloto</button>
+                <button onclick="limparFormularioPiloto()" style="background:#2b3240; border:1px solid #3a4252;">Novo / limpar</button>
+            </div>
             <div id="feedbackPiloto" class="feedback"></div>
             <div id="listaPilotos" style="margin-top: 10px;"></div>
         </div>
@@ -179,7 +166,6 @@
 
 <nav class="navbar">
     <div class="nav-item" onclick="show('dash')">📊<br>Rank</div>
-    <div class="nav-item" onclick="show('dash_firebase'); inicializarRankingFirestore();">🔥<br>Rank FB</div>
     <div class="nav-item" onclick="show('historico'); carregarHistorico();">📜<br>Consultar</div>
     <div class="nav-item" onclick="show('importar')">📂<br>Importar</div>
     <div class="nav-item" onclick="show('lançar')">⏱️<br>Lançar</div>
