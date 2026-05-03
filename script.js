@@ -19,6 +19,8 @@ let abaGestaoAtual = "campeonatos";
 let campeonatoEditando = null;
 let pilotoEditando = null;
 let IMPORTACAO_PREVIA = [];
+let RESULTADO_FINAL_PYSCRIPT = [];
+let RESULTADO_FINAL_PYSCRIPT_ARQUIVO = "";
 const PONTOS_PADRAO = { 1: 20, 2: 17, 3: 15, 4: 13, 5: 11, 6: 10, 7: 9, 8: 8, 9: 7, 10: 6 };
 
 const MEUS_PILOTOS = [
@@ -133,7 +135,17 @@ async function fazerBackupEProcessar() {
     }
 
     if (htmlResultadoFinal) {
-        IMPORTACAO_PREVIA = analisarHTML(htmlResultadoFinal, campeonato, dataCorrida, true);
+        const arquivoResultado = arquivos.find(a => a.tipo === "resultado_final")?.file;
+        const registrosPyScript = Array.isArray(RESULTADO_FINAL_PYSCRIPT) &&
+            RESULTADO_FINAL_PYSCRIPT.length &&
+            RESULTADO_FINAL_PYSCRIPT_ARQUIVO === arquivoResultado?.name
+            ? RESULTADO_FINAL_PYSCRIPT
+            : [];
+
+        IMPORTACAO_PREVIA = registrosPyScript.length
+            ? montarImportacaoPreviaDoResultado(registrosPyScript, campeonato, true)
+            : analisarHTML(htmlResultadoFinal, campeonato, dataCorrida, true);
+
         status.innerHTML = `✅ Arquivos salvos. Revise os pilotos abaixo e confirme a importação.`;
         document.getElementById("btnConfirmarImportacao").style.display = "block";
     } else {
@@ -161,10 +173,70 @@ async function lancarAutomatico(encontrados, campeonato, dataCorrida) {
     return count;
 }
 
+function receberResultadoFinalPyScript(payloadJson) {
+    try {
+        const payload = JSON.parse(payloadJson || "{}");
+        RESULTADO_FINAL_PYSCRIPT = Array.isArray(payload.registros) ? payload.registros : [];
+        RESULTADO_FINAL_PYSCRIPT_ARQUIVO = payload.arquivo || "";
+
+        const campeonato = document.getElementById("imp_camp")?.value || "";
+        if (campeonato && RESULTADO_FINAL_PYSCRIPT.length) {
+            montarImportacaoPreviaDoResultado(RESULTADO_FINAL_PYSCRIPT, campeonato, true);
+        }
+    } catch (e) {
+        console.error("Falha ao receber dados do PyScript:", e);
+    }
+}
+window.receberResultadoFinalPyScript = receberResultadoFinalPyScript;
+
+function normalizarRegistroResultado(item) {
+    const nome = item.driver_name || item.nome || item.piloto || item.piloto_original || "";
+    const id_piloto = item.driver_id || item.id_piloto || "";
+    const pos = item.posicao_final || item.pos || item.posicao || "";
+
+    return {
+        nome: String(nome || "").trim(),
+        pos: String(pos || "").trim(),
+        id_piloto: String(id_piloto || "").trim(),
+        posGeral: parseInt(pos) || 9999,
+        arquivo_origem: item.arquivo_origem || "",
+        kart_numero: item.kart_numero || "",
+        melhor_tempo: item.melhor_tempo || "",
+        melhor_tempo_segundos: item.melhor_tempo_segundos ?? "",
+        total_tempo: item.total_tempo || "",
+        total_tempo_segundos: item.total_tempo_segundos ?? "",
+        voltas: item.voltas ?? "",
+    };
+}
+
+function montarImportacaoPreviaDoResultado(registros, campeonato = "", exibirHint = false) {
+    const encontrados = (registros || [])
+        .map(normalizarRegistroResultado)
+        .filter(item => item.nome && item.pos)
+        .filter((r, i, arr) => arr.findIndex(x => x.nome === r.nome && x.pos === r.pos && String(x.id_piloto) === String(r.id_piloto)) === i);
+
+    IMPORTACAO_PREVIA = encontrados.map(item => {
+        const porId = DB.pilotos.filter(p => String(getPilotoCampo(p, "id_piloto", "id") || "").trim() === String(item.id_piloto || "").trim() && item.id_piloto);
+        const conflitoId = porId.length > 1;
+        const existente = porId[0] ||
+            DB.pilotos.find(p => (getPilotoCampo(p, "nome") || "").toUpperCase() === (item.nome || "").toUpperCase());
+        const vinculado = existente ? vinculosPiloto(existente).includes(campeonato) : false;
+
+        return {
+            ...item,
+            checked: vinculado,
+            conflitoId,
+            status: conflitoId ? "ID duplicado/conflito" : (existente ? "Piloto já cadastrado" : "Será cadastrado automaticamente"),
+        };
+    });
+
+    recalcularPreviewImportacao(campeonato, exibirHint);
+    return IMPORTACAO_PREVIA;
+}
+
 function analisarHTML(htmlText, campeonato = "", dataCorrida = "", auto = false) {
     const doc = new DOMParser().parseFromString(htmlText, "text/html");
     const rows = doc.querySelectorAll("tr");
-    const participantes = pilotosDoCampeonato(campeonato);
 
     let encontrados = [];
     rows.forEach(row => {
@@ -173,25 +245,18 @@ function analisarHTML(htmlText, campeonato = "", dataCorrida = "", auto = false)
         const textos = Array.from(tds).map(td => (td.innerText || "").trim()).filter(Boolean);
         const pos = textos.find(t => /^\d+$/.test(t));
         if (!pos) return;
-        const possivelId = textos.find(t => /^\d{3,}$/.test(t) && t !== pos) || "";
-        const nome = textos.find(t => /[a-zA-ZÀ-ÿ]/.test(t) && t !== possivelId) || "";
+        const pilotoOriginal = textos.find(t => /^\[\d+\]\s*.+/.test(t)) || "";
+        const idDoNome = pilotoOriginal.match(/^\[(\d+)\]\s*(.+)$/);
+        const possivelId = idDoNome ? idDoNome[1] : (textos.find(t => /^\d{3,}$/.test(t) && t !== pos) || "");
+        const nome = idDoNome ? idDoNome[2] : (textos.find(t => /[a-zA-ZÀ-ÿ]/.test(t) && t !== possivelId) || "");
         if (!nome) return;
         encontrados.push({ nome, pos, id_piloto: possivelId });
     });
-    encontrados = encontrados.filter((r, i, arr) => arr.findIndex(x => x.nome === r.nome && x.pos === r.pos && String(x.id_piloto) === String(r.id_piloto)) === i);
-    IMPORTACAO_PREVIA = encontrados.map(item => {
-        const porId = DB.pilotos.filter(p => String(getPilotoCampo(p, "id_piloto", "id") || "").trim() === String(item.id_piloto || "").trim() && item.id_piloto);
-        const conflitoId = porId.length > 1;
-        const existente = porId[0] ||
-            DB.pilotos.find(p => (getPilotoCampo(p, "nome") || "").toUpperCase() === (item.nome || "").toUpperCase());
-        const vinculado = existente ? vinculosPiloto(existente).includes(campeonato) : false;
-        return { ...item, checked: vinculado, conflitoId, status: conflitoId ? "ID duplicado/conflito" : (existente ? "Piloto já cadastrado" : "Será cadastrado automaticamente"), posGeral: parseInt(item.pos) || 9999 };
-    });
-    recalcularPreviewImportacao(campeonato);
-    return IMPORTACAO_PREVIA;
+
+    return montarImportacaoPreviaDoResultado(encontrados, campeonato, auto);
 }
 
-function recalcularPreviewImportacao(campeonato) {
+function recalcularPreviewImportacao(campeonato, exibirHint = false) {
     IMPORTACAO_PREVIA = (IMPORTACAO_PREVIA.length ? IMPORTACAO_PREVIA : []).sort((a, b) => (a.posGeral || 9999) - (b.posGeral || 9999));
     const selecionados = IMPORTACAO_PREVIA.filter(i => i.checked && !i.conflitoId).sort((a, b) => a.posGeral - b.posGeral);
     const mapaPos = new Map(selecionados.map((p, idx) => [p, idx + 1]));
@@ -209,13 +274,13 @@ function recalcularPreviewImportacao(campeonato) {
     });
     h += "</table>";
 
-    if (auto) h += "<p class='hint'>Somente pilotos vinculados ao campeonato foram considerados.</p>";
+    if (exibirHint) h += "<p class='hint'>Somente pilotos vinculados ao campeonato foram considerados.</p>";
     document.getElementById("previewImportacao").innerHTML = h;
 }
 
 function toggleSelecionadoImport(idx, campeonato) {
     IMPORTACAO_PREVIA[idx].checked = !!document.getElementById(`imp_chk_${idx}`)?.checked;
-    recalcularPreviewImportacao(campeonato);
+    recalcularPreviewImportacao(campeonato, true);
 }
 
 async function confirmarImportacao() {
@@ -248,32 +313,6 @@ async function confirmarImportacao() {
     }
     if (erros.length) return alert("Falha ao salvar alguns pilotos/resultados:\n" + erros.join("\n"));
     await fetchData();
-    alert(`✅ Importação concluída com ${selecionados.length} piloto(s).`);
-    document.getElementById("btnConfirmarImportacao").style.display = "none";
-}
-
-async function confirmarImportacao() {
-    const campeonato = document.getElementById("imp_camp").value;
-    const etapa = document.getElementById("imp_etapa").value;
-    const data = document.getElementById("imp_data").value;
-    const selecionados = IMPORTACAO_PREVIA.filter((_, idx) => document.getElementById(`imp_chk_${idx}`)?.checked);
-    if (!selecionados.length) return alert("Selecione ao menos um piloto.");
-    const duplicadoEtapa = DB.resultados.some(r => (r.campeonato || r.Campeonato) === campeonato && String(r.etapa || r.Etapa) === String(etapa) && formatarDataISO(r.data || r.Data) === data);
-    if (duplicadoEtapa) return alert("Já existem resultados para este campeonato + etapa + data.");
-
-    for (const p of selecionados) {
-        const porId = p.id_piloto ? DB.pilotos.find(x => String(getPilotoCampo(x, "id_piloto", "id")) === String(p.id_piloto)) : null;
-        const porNome = DB.pilotos.find(x => (getPilotoCampo(x, "nome") || "").toUpperCase() === (p.nome || "").toUpperCase());
-        const existente = porId || porNome;
-        if (!existente) {
-            await enviarGestao({ tipo: "pilotos", acao: "criar", nome: p.nome, id_piloto: p.id_piloto || "", id: p.id_piloto || "", apelido: "", campeonatos: campeonato, vinculos: [campeonato] });
-        } else {
-            const vinc = new Set(vinculosPiloto(existente));
-            vinc.add(campeonato);
-            await enviarGestao({ tipo: "pilotos", acao: "editar", nomeAtual: getPilotoCampo(existente, "nome"), nome: getPilotoCampo(existente, "nome"), id_piloto: getPilotoCampo(existente, "id_piloto", "id"), id: getPilotoCampo(existente, "id_piloto", "id"), apelido: getPilotoCampo(existente, "apelido"), campeonatos: Array.from(vinc).join(", "), vinculos: Array.from(vinc) });
-        }
-        await enviarResultado({ tipo: "resultados", campeonato, etapa, piloto: p.nome, posicao: p.pos, pontos: p.pontos, data });
-    }
     alert(`✅ Importação concluída com ${selecionados.length} piloto(s).`);
     document.getElementById("btnConfirmarImportacao").style.display = "none";
 }

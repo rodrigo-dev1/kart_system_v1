@@ -8,6 +8,9 @@
     <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-database-compat.js"></script>
 
+    <link rel="stylesheet" href="https://pyscript.net/releases/2024.3.1/core.css">
+    <script type="module" src="https://pyscript.net/releases/2024.3.1/core.js"></script>
+
     <style>
         :root { --red: #ff4b4b; --dark: #0e1117; --card: #1d2129; }
         body { font-family: 'Segoe UI', sans-serif; background: var(--dark); color: white; margin: 0; padding-bottom: 70px; }
@@ -36,6 +39,14 @@
         .arquivo-card small, .muted { color: #aaa; font-size: 11px; }
         .file-label { display: block; margin-top: 12px; color: #ffeb3b; font-size: 13px; font-weight: bold; }
         .hint { color: #aaa; font-size: 12px; margin: 0 0 10px 0; line-height: 1.4; }
+
+        .py-preview-card { background: #151a22; border: 1px solid #394150; border-radius: 12px; padding: 12px; margin-top: 14px; }
+        .py-status { color: #ffeb3b; font-size: 13px; margin: 8px 0; }
+        .py-table-wrapper { max-height: 360px; overflow: auto; border-radius: 10px; border: 1px solid #333; }
+        .pyscript-table { min-width: 900px; font-size: 12px; }
+        .pyscript-table th, .pyscript-table td { white-space: nowrap; padding: 8px; }
+        .py-summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 8px; margin: 8px 0 12px 0; }
+        .py-summary div { background: #252a34; border-radius: 8px; padding: 8px; font-size: 12px; }
     </style>
 </head>
 <body>
@@ -69,13 +80,21 @@
         <input type="date" id="imp_data">
 
         <label class="file-label" for="fileVoltaVolta">1) Volta a volta</label>
-        <input type="file" id="fileVoltaVolta" accept=".html,.htm,.pdf">
+        <input type="file" id="fileVoltaVolta" accept=".html,.htm,.xml,.pdf">
 
         <label class="file-label" for="fileClassificacao">2) Classificação</label>
-        <input type="file" id="fileClassificacao" accept=".html,.htm,.pdf">
+        <input type="file" id="fileClassificacao" accept=".html,.htm,.xml,.pdf">
 
         <label class="file-label" for="fileResultadoFinal">3) Resultado final</label>
-        <input type="file" id="fileResultadoFinal" accept=".html,.htm,.pdf">
+        <input type="file" id="fileResultadoFinal" accept=".html,.htm,.xml,.pdf">
+
+        <div id="pyPreviewCard" class="py-preview-card">
+            <h3>🐍 Prévia PyScript — Resultado final</h3>
+            <p class="hint">Ao selecionar o arquivo de resultado final, o Python roda no navegador, lê a tabela e exibe o DataFrame antes de salvar.</p>
+            <div id="pyStatus" class="py-status">Aguardando seleção do arquivo de resultado final...</div>
+            <div id="pyPreviewInfo"></div>
+            <div id="pyPreviewTable" class="py-table-wrapper"></div>
+        </div>
 
         <button onclick="fazerBackupEProcessar()" style="background: #2196F3;">SALVAR OS 3 ARQUIVOS NO FIREBASE</button>
         <div id="statusImport" style="text-align: center; margin-top: 10px; color: #ffeb3b;"></div>
@@ -153,5 +172,6 @@
 </nav>
 
 <script src="script.js"></script>
+<script type="py" src="kart_parser.py" config="./pyscript.toml"></script>
 </body>
 </html>
