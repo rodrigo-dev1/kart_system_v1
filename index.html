@@ -72,34 +72,36 @@
 
 <div id="importar" class="section">
     <div class="form-card">
-        <h2>📂 Importar Arquivos</h2>
-        <p class="hint">Selecione o campeonato, a data da corrida e envie os 3 arquivos obrigatórios.</p>
+        <h2>📂 Importar Arquivo</h2>
+        <p class="hint">Selecione o campeonato, a etapa, a data, o tipo de arquivo e envie apenas um arquivo por vez.</p>
 
-        <select id="imp_camp"></select>
+        <select id="imp_camp" onchange="atualizarPreviewImportacaoAtual()"></select>
         <input type="number" id="imp_etapa" placeholder="Etapa (obrigatório)" min="1">
         <input type="date" id="imp_data">
 
-        <label class="file-label" for="fileVoltaVolta">1) Volta a volta</label>
-        <input type="file" id="fileVoltaVolta" accept=".html,.htm,.xml,.pdf">
+        <label class="file-label" for="imp_tipo_arquivo">Tipo de arquivo</label>
+        <select id="imp_tipo_arquivo" onchange="onTipoArquivoImportChange()">
+            <option value="">Selecione o tipo de arquivo</option>
+            <option value="resultado_final">Resultado final</option>
+            <option value="classificacao">Classificação</option>
+            <option value="volta_a_volta">Volta a volta</option>
+        </select>
 
-        <label class="file-label" for="fileClassificacao">2) Classificação</label>
-        <input type="file" id="fileClassificacao" accept=".html,.htm,.xml,.pdf">
-
-        <label class="file-label" for="fileResultadoFinal">3) Resultado final</label>
-        <input type="file" id="fileResultadoFinal" accept=".html,.htm,.xml,.pdf">
+        <label class="file-label" for="fileImportacaoUnico" id="labelFileImportacao">Arquivo</label>
+        <input type="file" id="fileImportacaoUnico" accept=".html,.htm,.xml,.pdf">
 
         <div id="pyPreviewCard" class="py-preview-card">
-            <h3>🐍 Prévia PyScript — Resultado final</h3>
-            <p class="hint">Ao selecionar o arquivo de resultado final, o Python roda no navegador, lê a tabela e exibe o DataFrame antes de salvar.</p>
-            <div id="pyStatus" class="py-status">Aguardando seleção do arquivo de resultado final...</div>
+            <h3>🐍 Prévia PyScript</h3>
+            <p class="hint">Para Resultado final e Classificação, o Python lê o arquivo no navegador e o sistema mostra a tabela com checkbox para importar apenas os pilotos selecionados.</p>
+            <div id="pyStatus" class="py-status">Selecione o tipo de arquivo e depois escolha o arquivo.</div>
             <div id="pyPreviewInfo"></div>
             <div id="pyPreviewTable" class="py-table-wrapper"></div>
         </div>
 
-        <button onclick="fazerBackupEProcessar()" style="background: #2196F3;">SALVAR OS 3 ARQUIVOS NO FIREBASE</button>
+        <button onclick="fazerBackupEProcessar()" style="background: #2196F3;">SALVAR ARQUIVO / GERAR PRÉVIA</button>
         <div id="statusImport" style="text-align: center; margin-top: 10px; color: #ffeb3b;"></div>
         <div id="previewImportacao" style="margin-top: 15px;"></div>
-        <button id="btnConfirmarImportacao" onclick="confirmarImportacao()" style="display:none;">CONFIRMAR IMPORTAÇÃO</button>
+        <button id="btnConfirmarImportacao" onclick="confirmarImportacao()" style="display:none;">IMPORTAR SELECIONADOS PARA O FIREBASE</button>
     </div>
 </div>
 

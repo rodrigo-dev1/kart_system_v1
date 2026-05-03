@@ -28,17 +28,18 @@ COLUNAS_RENAME = {
     "SFSpd Melhor Vlt": "sfspd_melhor_vlt",
 }
 
+# Mesma pontuação informada para a importação atual.
 PONTUACAO_PADRAO = {
     1: 20,
     2: 17,
     3: 15,
     4: 13,
     5: 11,
-    6: 10,
-    7: 9,
-    8: 8,
-    9: 7,
-    10: 6,
+    6: 9,
+    7: 7,
+    8: 5,
+    9: 3,
+    10: 1,
 }
 
 LAST_DF: Optional[pd.DataFrame] = None
@@ -101,10 +102,14 @@ def extrair_metadados_html_texto(html: str, nome_arquivo: str) -> dict:
     }
 
 
-def carregar_resultado_final_html_texto(html: str, nome_arquivo: str = "resultado_final.html") -> pd.DataFrame:
+def carregar_tabela_corrida_html_texto(
+    html: str,
+    nome_arquivo: str = "arquivo.html",
+    tipo_arquivo: str = "resultado_final",
+) -> pd.DataFrame:
     """
-    Lê o HTML/XML de resultado final carregado pelo input do front e retorna um DataFrame
-    com uma linha por piloto na ordem final de chegada.
+    Lê HTML/HTM/XML de Resultado Final ou Classificação enviado no front.
+    Retorna um DataFrame com driver_id, driver_name e dados principais da tabela.
     """
     tabelas = pd.read_html(
         StringIO(html),
@@ -117,7 +122,7 @@ def carregar_resultado_final_html_texto(html: str, nome_arquivo: str = "resultad
     )
 
     if not tabelas:
-        raise ValueError("Nenhuma tabela foi encontrada no arquivo de resultado final.")
+        raise ValueError("Nenhuma tabela foi encontrada no arquivo.")
 
     df = tabelas[0].rename(columns=COLUNAS_RENAME)
 
@@ -125,7 +130,6 @@ def carregar_resultado_final_html_texto(html: str, nome_arquivo: str = "resultad
         "posicao_final",
         "kart_numero",
         "piloto_original",
-        "voltas",
     }
 
     colunas_faltantes = colunas_obrigatorias - set(df.columns)
@@ -154,7 +158,9 @@ def carregar_resultado_final_html_texto(html: str, nome_arquivo: str = "resultad
     df["driver_name"] = df["driver_name"].fillna(df["piloto_original"])
 
     df["posicao_final"] = pd.to_numeric(df["posicao_final"], errors="coerce").astype("Int64")
-    df["voltas"] = pd.to_numeric(df["voltas"], errors="coerce").astype("Int64")
+
+    if "voltas" in df.columns:
+        df["voltas"] = pd.to_numeric(df["voltas"], errors="coerce").astype("Int64")
 
     if "pitstops" in df.columns:
         df["pitstops"] = pd.to_numeric(df["pitstops"], errors="coerce").astype("Int64")
@@ -176,15 +182,18 @@ def carregar_resultado_final_html_texto(html: str, nome_arquivo: str = "resultad
     for chave, valor in metadados.items():
         df[chave] = valor
 
+    df["tipo_arquivo"] = tipo_arquivo
+
     ordem_colunas = [
+        "driver_id",
+        "driver_name",
+        "posicao_final",
+        "kart_numero",
         "arquivo_origem",
+        "tipo_arquivo",
         "kartodromo",
         "evento",
         "gerado_em",
-        "posicao_final",
-        "kart_numero",
-        "driver_id",
-        "driver_name",
         "classe",
         "voltas",
         "total_tempo",
@@ -207,6 +216,16 @@ def carregar_resultado_final_html_texto(html: str, nome_arquivo: str = "resultad
     return df[colunas_existentes].sort_values("posicao_final").reset_index(drop=True)
 
 
+def filter_piloto(df: pd.DataFrame, pilotos: dict) -> pd.DataFrame:
+    """
+    Exemplo equivalente ao que será feito pela seleção dos checkboxes no front.
+    Recebe um dict de pilotos e retorna somente os driver_id selecionados.
+    """
+    pilotos_ids_str = [str(id_) for id_ in pilotos.values()]
+    df_filtrado = df[df["driver_id"].astype(str).isin(pilotos_ids_str)].copy()
+    return df_filtrado
+
+
 def get_position_and_points(df_filtrado: pd.DataFrame) -> pd.DataFrame:
     df_filtrado = df_filtrado.copy()
     df_filtrado.loc[:, "posicao_final2"] = df_filtrado["posicao_final"].rank(method="min").astype(int)
@@ -220,7 +239,20 @@ def set_html(element_id: str, html: str) -> None:
         element.innerHTML = html
 
 
-def serializar_para_js(df: pd.DataFrame, nome_arquivo: str) -> None:
+def tipo_arquivo_atual() -> str:
+    select = document.getElementById("imp_tipo_arquivo")
+    return str(select.value) if select is not None else ""
+
+
+def label_tipo_arquivo(tipo: str) -> str:
+    return {
+        "resultado_final": "Resultado final",
+        "classificacao": "Classificação",
+        "volta_a_volta": "Volta a volta",
+    }.get(tipo, tipo or "-")
+
+
+def serializar_para_js(df: pd.DataFrame, nome_arquivo: str, tipo_arquivo: str) -> None:
     df_js = df.copy()
 
     for coluna in df_js.columns:
@@ -232,37 +264,41 @@ def serializar_para_js(df: pd.DataFrame, nome_arquivo: str) -> None:
 
     payload = {
         "arquivo": nome_arquivo,
+        "tipo": tipo_arquivo,
         "registros": registros,
     }
 
     payload_json = json.dumps(payload, ensure_ascii=False, default=str)
     window.IMPORTACAO_PYSCRIPT_JSON = payload_json
 
-    if hasattr(window, "receberResultadoFinalPyScript"):
+    if hasattr(window, "receberImportacaoPyScript"):
+        window.receberImportacaoPyScript(payload_json)
+    elif hasattr(window, "receberResultadoFinalPyScript"):
         window.receberResultadoFinalPyScript(payload_json)
 
 
-def exibir_dataframe(df: pd.DataFrame, nome_arquivo: str) -> None:
+def exibir_dataframe(df: pd.DataFrame, nome_arquivo: str, tipo_arquivo: str) -> None:
     total_pilotos = len(df)
     melhor_volta = df["melhor_tempo_segundos"].min() if "melhor_tempo_segundos" in df.columns else None
-    vencedor = df.iloc[0]["driver_name"] if total_pilotos and "driver_name" in df.columns else "-"
+    primeiro = df.iloc[0]["driver_name"] if total_pilotos and "driver_name" in df.columns else "-"
 
     info_html = f"""
     <div class="py-summary">
+        <div><strong>Tipo</strong><br>{label_tipo_arquivo(tipo_arquivo)}</div>
         <div><strong>Arquivo</strong><br>{nome_arquivo}</div>
         <div><strong>Pilotos lidos</strong><br>{total_pilotos}</div>
-        <div><strong>Vencedor geral</strong><br>{vencedor}</div>
+        <div><strong>1º geral</strong><br>{primeiro}</div>
         <div><strong>Melhor volta (s)</strong><br>{'-' if pd.isna(melhor_volta) else melhor_volta}</div>
     </div>
     """
 
     colunas_preview = [
+        "driver_id",
+        "driver_name",
         "posicao_final",
         "posicao_final2",
         "pontos",
         "kart_numero",
-        "driver_id",
-        "driver_name",
         "voltas",
         "total_tempo",
         "melhor_tempo",
@@ -292,15 +328,25 @@ async def get_text_from_file(file) -> str:
     return data.decode("utf-8", errors="ignore")
 
 
-async def ler_resultado_final(event) -> None:
+async def ler_arquivo_importacao(event) -> None:
     global LAST_DF
 
     try:
+        tipo_arquivo = tipo_arquivo_atual()
         file_list = event.target.files
         file = file_list.item(0) if file_list and file_list.length else None
 
         if file is None:
-            set_html("pyStatus", "Aguardando seleção do arquivo de resultado final...")
+            set_html("pyStatus", "Selecione o tipo de arquivo e depois escolha o arquivo.")
+            set_html("pyPreviewInfo", "")
+            set_html("pyPreviewTable", "")
+            window.IMPORTACAO_PYSCRIPT_JSON = ""
+            return
+
+        if tipo_arquivo not in {"resultado_final", "classificacao"}:
+            LAST_DF = None
+            window.IMPORTACAO_PYSCRIPT_JSON = ""
+            set_html("pyStatus", "ℹ️ Este tipo de arquivo será salvo sem prévia de pilotos.")
             set_html("pyPreviewInfo", "")
             set_html("pyPreviewTable", "")
             return
@@ -311,13 +357,13 @@ async def ler_resultado_final(event) -> None:
         set_html("pyPreviewTable", "")
 
         html = await get_text_from_file(file)
-        df = carregar_resultado_final_html_texto(html, nome_arquivo)
+        df = carregar_tabela_corrida_html_texto(html, nome_arquivo, tipo_arquivo)
         df = get_position_and_points(df)
         LAST_DF = df
 
-        serializar_para_js(df, nome_arquivo)
-        exibir_dataframe(df, nome_arquivo)
-        set_html("pyStatus", "✅ Leitura concluída. Confira o DataFrame abaixo antes de salvar.")
+        serializar_para_js(df, nome_arquivo, tipo_arquivo)
+        exibir_dataframe(df, nome_arquivo, tipo_arquivo)
+        set_html("pyStatus", "✅ Leitura concluída. Confira o DataFrame e selecione os pilotos na tabela de importação abaixo.")
 
     except Exception as exc:
         LAST_DF = None
@@ -328,14 +374,14 @@ async def ler_resultado_final(event) -> None:
 
 
 def inicializar() -> None:
-    input_resultado = document.getElementById("fileResultadoFinal")
+    input_importacao = document.getElementById("fileImportacaoUnico")
 
-    if input_resultado is None:
-        set_html("pyStatus", "❌ Input fileResultadoFinal não encontrado no HTML.")
+    if input_importacao is None:
+        set_html("pyStatus", "❌ Input fileImportacaoUnico não encontrado no HTML.")
         return
 
-    add_event_listener(input_resultado, "change", ler_resultado_final)
-    set_html("pyStatus", "✅ PyScript carregado. Selecione o arquivo de resultado final para visualizar o DataFrame.")
+    add_event_listener(input_importacao, "change", ler_arquivo_importacao)
+    set_html("pyStatus", "✅ PyScript carregado. Selecione Resultado final ou Classificação e escolha o arquivo para visualizar o DataFrame.")
 
 
 inicializar()
