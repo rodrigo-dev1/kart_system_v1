@@ -366,13 +366,16 @@ function analisarHTML(htmlText, campeonato = "", dataCorrida = "", tipoArquivo =
 }
 
 function recalcularPreviewImportacao(campeonato, exibirHint = false, calcularPontos = false) {
-    IMPORTACAO_PREVIA = (IMPORTACAO_PREVIA.length ? IMPORTACAO_PREVIA : []).sort((a, b) => (a.posGeral || 9999) - (b.posGeral || 9999));
+    IMPORTACAO_PREVIA = (IMPORTACAO_PREVIA.length ? IMPORTACAO_PREVIA : [])
+        .sort((a, b) => (a.posGeral || 9999) - (b.posGeral || 9999));
 
     const selecionadosOrdenados = IMPORTACAO_PREVIA
         .filter(i => i.checked && !i.conflitoId)
         .sort((a, b) => a.posGeral - b.posGeral);
 
-    if (calcularPontos) {
+    const deveCalcularPontos = calcularPontos && selecionadosOrdenados.length > 0;
+
+    if (deveCalcularPontos) {
         const rankPorItem = new Map();
         let ultimoPos = null;
         let rankAtual = 0;
@@ -382,15 +385,26 @@ function recalcularPreviewImportacao(campeonato, exibirHint = false, calcularPon
                 rankAtual = idx + 1;
                 ultimoPos = item.posGeral;
             }
+
             rankPorItem.set(item, rankAtual);
         });
 
         IMPORTACAO_PREVIA.forEach(item => {
-            item.posicao_final2 = item.checked && !item.conflitoId ? (rankPorItem.get(item) || 0) : 0;
+            item.posicao_final2 = item.checked && !item.conflitoId
+                ? (rankPorItem.get(item) || 0)
+                : 0;
+
             item.posCampeonato = item.posicao_final2;
-            item.pontos = item.posicao_final2 ? (PONTOS_PADRAO[item.posicao_final2] || 0) : 0;
-            item.origemPontuacao = item.posicao_final2 ? "Pontuação padrão da importação" : "-";
+
+            item.pontos = item.posicao_final2
+                ? (PONTOS_PADRAO[item.posicao_final2] || 0)
+                : 0;
+
+            item.origemPontuacao = item.posicao_final2
+                ? "Pontuação padrão da importação"
+                : "-";
         });
+
         IMPORTACAO_PREVIA_GERADA = true;
     } else {
         IMPORTACAO_PREVIA.forEach(item => {
@@ -399,48 +413,125 @@ function recalcularPreviewImportacao(campeonato, exibirHint = false, calcularPon
             item.pontos = 0;
             item.origemPontuacao = "Aguardando cálculo";
         });
+
         IMPORTACAO_PREVIA_GERADA = false;
     }
 
     const cfg = getTipoArquivoSelecionado() || TIPOS_ARQUIVO.find(t => t.tipo === IMPORTACAO_PREVIA[0]?.tipoArquivo);
     const titulo = cfg?.tipo === "classificacao" ? "Classificação" : "Resultado Final";
     const tituloEtapa = IMPORTACAO_PREVIA_GERADA ? "Prévia de Importação" : "Seleção de Pilotos";
+
     let h = `<h3>${tituloEtapa} — ${htmlEscape(titulo)}</h3>`;
-    if (!IMPORTACAO_PREVIA.length) h += "<p class='muted'>Nenhum piloto identificado no arquivo.</p>";
-    h += `<div style="max-width:100%; overflow:auto;"><table><tr><th>Importar?</th><th>driver_id</th><th>driver_name</th><th>Pos. geral</th><th>Pos. importação</th><th>Pontos</th><th>Kart</th><th>Melhor tempo</th><th>Voltas</th><th>Status</th></tr>`;
+
+    if (!IMPORTACAO_PREVIA.length) {
+        h += "<p class='muted'>Nenhum piloto identificado no arquivo.</p>";
+    }
+
+    h += `
+        <div style="max-width:100%; overflow:auto;">
+            <table>
+                <tr>
+                    <th>Importar?</th>
+                    <th>driver_id</th>
+                    <th>driver_name</th>
+                    <th>Pos. geral</th>
+                    <th>Pos. importação</th>
+                    <th>Pontos</th>
+                    <th>Kart</th>
+                    <th>Melhor tempo</th>
+                    <th>Voltas</th>
+                    <th>Status</th>
+                </tr>
+    `;
+
     IMPORTACAO_PREVIA.forEach((i, idx) => {
         const disabled = i.conflitoId ? "disabled" : "";
-        const posicaoCalculada = IMPORTACAO_PREVIA_GERADA && i.posicao_final2 ? i.posicao_final2 : "-";
-        const pontosCalculados = IMPORTACAO_PREVIA_GERADA && i.posicao_final2 ? i.pontos : "-";
-        h += `<tr>` +
-            `<td><input type="checkbox" id="imp_chk_${idx}" ${i.checked ? "checked" : ""} ${disabled} onchange="toggleSelecionadoImport(${idx})"></td>` +
-            `<td>${htmlEscape(i.driver_id || "-")}</td>` +
-            `<td>${htmlEscape(i.driver_name || "-")}</td>` +
-            `<td>${htmlEscape(i.posicao_final || i.pos || "-")}</td>` +
-            `<td>${posicaoCalculada}</td>` +
-            `<td>${pontosCalculados}</td>` +
-            `<td>${htmlEscape(i.kart_numero || "-")}</td>` +
-            `<td>${htmlEscape(i.melhor_tempo || "-")}</td>` +
-            `<td>${htmlEscape(i.voltas || "-")}</td>` +
-            `<td>${htmlEscape(i.status)}</td>` +
-            `</tr>`;
+        const posicaoCalculada = i.posicao_final2 ? i.posicao_final2 : "-";
+        const pontosCalculados = i.posicao_final2 ? i.pontos : "-";
+
+        h += `
+            <tr>
+                <td>
+                    <input 
+                        type="checkbox" 
+                        id="imp_chk_${idx}" 
+                        ${i.checked ? "checked" : ""} 
+                        ${disabled} 
+                        onchange="toggleSelecionadoImport(${idx})"
+                    >
+                </td>
+                <td>${htmlEscape(i.driver_id || "-")}</td>
+                <td>${htmlEscape(i.driver_name || "-")}</td>
+                <td>${htmlEscape(i.posicao_final || i.pos || "-")}</td>
+                <td>${posicaoCalculada}</td>
+                <td>${pontosCalculados}</td>
+                <td>${htmlEscape(i.kart_numero || "-")}</td>
+                <td>${htmlEscape(i.melhor_tempo || "-")}</td>
+                <td>${htmlEscape(i.voltas || "-")}</td>
+                <td>${htmlEscape(i.status)}</td>
+            </tr>
+        `;
     });
-    h += "</table></div>";
+
+    h += `
+            </table>
+        </div>
+    `;
 
     if (exibirHint) {
         if (IMPORTACAO_PREVIA_GERADA) {
-            h += `<p class='hint'>Pontuação recalculada somente com os pilotos marcados, equivalente a filter_piloto() + get_position_and_points(). Selecionados: ${selecionadosOrdenados.length}</p>`;
+            h += `
+                <p class='hint'>
+                    Pontuação recalculada automaticamente somente com os pilotos marcados.
+                    Selecionados: ${selecionadosOrdenados.length}
+                </p>
+            `;
         } else {
-            h += `<p class='hint'>Marque os pilotos que serão importados. Os campos Pos. importação e Pontos só serão calculados após clicar em Salvar arquivo / gerar prévia.</p>`;
+            h += `
+                <p class='hint'>
+                    Marque os pilotos que serão importados. 
+                    Para Resultado Final, a posição e os pontos serão recalculados automaticamente.
+                </p>
+            `;
         }
     }
+
     document.getElementById("previewImportacao").innerHTML = h;
 }
+
+
 function toggleSelecionadoImport(idx) {
     const campeonato = document.getElementById("imp_camp")?.value || "";
+    const cfg = getTipoArquivoSelecionado();
+
+    if (!IMPORTACAO_PREVIA[idx]) return;
+
     IMPORTACAO_PREVIA[idx].checked = !!document.getElementById(`imp_chk_${idx}`)?.checked;
-    recalcularPreviewImportacao(campeonato, true, IMPORTACAO_PREVIA_GERADA);
-    document.getElementById("btnConfirmarImportacao").style.display = IMPORTACAO_PREVIA_GERADA ? "block" : "none";
+
+    const tipoArquivo = cfg?.tipo || IMPORTACAO_PREVIA[idx]?.tipoArquivo || "";
+
+    const deveRecalcularAutomatico =
+        tipoArquivo === "resultado_final" || IMPORTACAO_PREVIA_GERADA;
+
+    recalcularPreviewImportacao(
+        campeonato,
+        true,
+        deveRecalcularAutomatico
+    );
+
+    const selecionados = IMPORTACAO_PREVIA.filter(i => i.checked && !i.conflitoId);
+
+    const statusTexto = String(document.getElementById("statusImport")?.innerText || "").toLowerCase();
+
+    const arquivoJaFoiSalvo =
+        statusTexto.includes("salvo") ||
+        statusTexto.includes("prévia gerada") ||
+        statusTexto.includes("prévia gerada");
+
+    document.getElementById("btnConfirmarImportacao").style.display =
+        arquivoJaFoiSalvo && selecionados.length && IMPORTACAO_PREVIA_GERADA
+            ? "block"
+            : "none";
 }
 
 function selectEndFirebasePayload(item, contexto) {
