@@ -95,18 +95,16 @@ function normalizarDocId(v) {
     return normalizarChave(v).replace(/^_+|_+$/g, "").slice(0, 700) || "sem_id";
 }
 
-function normalizarNomeColecao(v) {
-    return String(v || "").trim().replace(/\/+/g, "-") || "campeonato_sem_nome";
-}
-
 function hojeISO() {
     return new Date().toISOString().slice(0, 10);
 }
 
 function formatarDataBR(dataISO) {
     if (!dataISO) return "-";
+
     const base = String(dataISO).split("T")[0].split(" ")[0];
     const p = base.split("-");
+
     return p.length === 3 ? `${p[2]}/${p[1]}/${p[0]}` : base;
 }
 
@@ -118,6 +116,7 @@ function formatarDataISO(dataISO) {
 function paraTimestamp(dataISO) {
     const base = formatarDataISO(dataISO);
     const t = new Date(`${base}T00:00:00Z`).getTime();
+
     return Number.isNaN(t) ? 0 : t;
 }
 
@@ -126,6 +125,7 @@ function extrairDataItem(item) {
     if (item.dataUploadISO) return item.dataUploadISO.slice(0, 10);
 
     const m = String(item.dataUpload || "").match(/(\d{2})\/(\d{2})\/(\d{4})/);
+
     if (m) return `${m[3]}-${m[2]}-${m[1]}`;
 
     return hojeISO();
@@ -137,6 +137,7 @@ function arquivoParaDataUrl(file) {
 
         reader.onload = () => resolve(reader.result);
         reader.onerror = reject;
+
         reader.readAsDataURL(file);
     });
 }
@@ -241,11 +242,11 @@ function atualizarPreviewImportacaoAtual() {
 window.atualizarPreviewImportacaoAtual = atualizarPreviewImportacaoAtual;
 
 function getCampeonatoFirestoreRef(campeonato) {
-    const campeonatoCollectionId = normalizarNomeColecao(campeonato);
+    const campeonatoDocId = normalizarDocId(campeonato);
 
     return {
-        campeonatoCollectionId,
-        ref: firestore.collection(campeonatoCollectionId).doc("campeonato")
+        campeonatoDocId,
+        ref: firestore.collection("campeonado").doc(campeonatoDocId)
     };
 }
 
@@ -286,17 +287,17 @@ function toFirestoreSafe(value) {
 }
 
 async function prepararDocumentoCampeonato(campeonato) {
-    const { campeonatoCollectionId, ref } = getCampeonatoFirestoreRef(campeonato);
+    const { campeonatoDocId, ref } = getCampeonatoFirestoreRef(campeonato);
 
     await ref.set({
+        id: campeonatoDocId,
         nome: campeonato,
-        collectionId: campeonatoCollectionId,
-        estrutura: `${campeonatoCollectionId}/campeonato/resultado_final/{etapa_data}`,
-        atualizadoEmISO: new Date().toISOString()
+        atualizadoEmISO: new Date().toISOString(),
+        estrutura: `campeonado/${campeonatoDocId}`
     }, { merge: true });
 
     return {
-        campeonatoCollectionId,
+        campeonatoDocId,
         campRef: ref
     };
 }
@@ -317,6 +318,7 @@ function montarBackupPayload({
     return toFirestoreSafe({
         idImportacao: idUnico,
         campeonato,
+        campeonato_id: normalizarDocId(campeonato),
         etapa: Number(etapa),
         dataCorrida,
         tipoArquivo: cfg.tipo,
@@ -328,7 +330,7 @@ function montarBackupPayload({
         dataUploadISO: new Date().toISOString(),
         arquivoCompletoSalvoNoFirestore: arquivoPequeno,
         avisoArquivo: arquivoPequeno
-            ? "Arquivo salvo no documento."
+            ? "Arquivo salvo no documento global de backup."
             : "Arquivo acima do limite seguro do Firestore. Salvei os metadados e os dados extraídos dos pilotos.",
         dataUrl: arquivoPequeno ? dataUrl : "",
         conteudo: arquivoPequeno ? conteudoRaw : ""
@@ -336,30 +338,18 @@ function montarBackupPayload({
 }
 
 async function salvarBackupImportacaoNoFirestore(backupPayload) {
-    const { campeonatoCollectionId, campRef } = await prepararDocumentoCampeonato(backupPayload.campeonato);
     const backupId = backupPayload.idImportacao;
-
-    const caminhoCampeonato = `${campeonatoCollectionId}/campeonato/backups/${backupId}`;
     const caminhoGlobal = `backups_importacao/${backupId}`;
-
-    await campRef.collection("backups").doc(backupId).set({
-        ...backupPayload,
-        caminhoFirestore: caminhoCampeonato,
-        atualizadoEmISO: new Date().toISOString()
-    }, { merge: true });
 
     await firestore.collection("backups_importacao").doc(backupId).set({
         ...backupPayload,
-        campeonatoCollectionId,
-        caminhoFirestore: caminhoCampeonato,
-        caminhoGlobalFirestore: caminhoGlobal,
+        caminhoFirestore: caminhoGlobal,
         atualizadoEmISO: new Date().toISOString()
     }, { merge: true });
 
     return {
         backupId,
-        caminhoFirestore: caminhoCampeonato,
-        caminhoGlobalFirestore: caminhoGlobal
+        caminhoFirestore: caminhoGlobal
     };
 }
 
@@ -371,7 +361,7 @@ async function salvarArquivoSemPreviewNoFirestore({
     backupPayload,
     backupId
 }) {
-    const { campeonatoCollectionId, campRef } = await prepararDocumentoCampeonato(campeonato);
+    const { campeonatoDocId, campRef } = await prepararDocumentoCampeonato(campeonato);
 
     const destino = cfg.tipo || "arquivo";
     const docId = `${getResultadoFinalDocId(etapa, dataCorrida)}_${normalizarDocId(backupId)}`;
@@ -381,41 +371,70 @@ async function salvarArquivoSemPreviewNoFirestore({
         ...backupPayload,
         idImportacao: backupId,
         campeonato,
+        campeonato_id: campeonatoDocId,
         etapa: Number(etapa),
         dataCorrida,
         tipoArquivo: cfg.tipo,
         nomeArquivo: backupPayload.nomeArquivo || "",
-        caminhoBackup: `${campeonatoCollectionId}/campeonato/backups/${backupId}`,
+        caminhoBackup: `backups_importacao/${backupId}`,
+        caminhoFirestore: `campeonado/${campeonatoDocId}/${destino}/${docId}`,
         criadoEmISO: new Date().toISOString(),
         atualizadoEmISO: new Date().toISOString()
     }), { merge: true });
 
-    return `${campeonatoCollectionId}/campeonato/${destino}/${docId}`;
+    return `campeonado/${campeonatoDocId}/${destino}/${docId}`;
 }
 
-async function salvarPilotosImportadosNoFirestore({
-    campRef,
-    campeonato,
-    selecionados
-}) {
-    const batch = firestore.batch();
+function extrairCampeonatosDoPilotoExistente(data) {
+    const bruto = data?.campeonatos || data?.vinculos || [];
 
-    selecionados.forEach((p, idx) => {
-        const pilotoId = normalizarDocId(p.driver_id || p.driver_name || `piloto_${idx + 1}`);
-        const ref = campRef.collection("pilotos").doc(pilotoId);
+    if (Array.isArray(bruto)) {
+        return bruto.map(v => String(v || "").trim()).filter(Boolean);
+    }
 
-        batch.set(ref, toFirestoreSafe({
-            driver_id: p.driver_id || "",
-            driver_name: p.driver_name || "",
-            nome: p.driver_name || "",
-            id_piloto: p.driver_id || "",
-            campeonatos: [campeonato],
-            origemCadastro: "importacao_arquivo",
-            atualizadoEmISO: new Date().toISOString()
-        }), { merge: true });
-    });
+    return String(bruto || "")
+        .split(",")
+        .map(v => v.trim())
+        .filter(Boolean);
+}
 
-    await batch.commit();
+async function salvarPilotoGlobalNoFirestore(p, campeonato) {
+    const idPilotoBruto = String(p.driver_id || p.id_piloto || "").trim();
+
+    if (!idPilotoBruto) {
+        console.warn("Piloto sem id_piloto não foi cadastrado na collection Pilotos:", p);
+        return;
+    }
+
+    const pilotoDocId = normalizarDocId(idPilotoBruto);
+    const pilotoRef = firestore.collection("Pilotos").doc(pilotoDocId);
+    const snapshot = await pilotoRef.get();
+
+    const dadosAtuais = snapshot.exists ? snapshot.data() : {};
+    const campeonatosAtuais = extrairCampeonatosDoPilotoExistente(dadosAtuais);
+
+    if (!campeonatosAtuais.includes(campeonato)) {
+        campeonatosAtuais.push(campeonato);
+    }
+
+    await pilotoRef.set(toFirestoreSafe({
+        id_piloto: idPilotoBruto,
+        driver_id: idPilotoBruto,
+        nome: p.driver_name || dadosAtuais.nome || "",
+        driver_name: p.driver_name || dadosAtuais.driver_name || "",
+        campeonatos: campeonatosAtuais,
+        origemCadastro: snapshot.exists
+            ? dadosAtuais.origemCadastro || "cadastro_existente"
+            : "importacao_arquivo",
+        atualizadoEmISO: new Date().toISOString(),
+        criadoEmISO: dadosAtuais.criadoEmISO || new Date().toISOString()
+    }), { merge: true });
+}
+
+async function salvarPilotosImportadosNoFirestore({ campeonato, selecionados }) {
+    for (const p of selecionados) {
+        await salvarPilotoGlobalNoFirestore(p, campeonato);
+    }
 }
 
 function selectEndFirebasePayload(item, contexto) {
@@ -440,7 +459,7 @@ async function salvarSelecionadosNoFirestore({
     nomeArquivo,
     backupId = ""
 }) {
-    const { campeonatoCollectionId, campRef } = await prepararDocumentoCampeonato(campeonato);
+    const { campeonatoDocId, campRef } = await prepararDocumentoCampeonato(campeonato);
 
     const resultadoDocId = getResultadoFinalDocId(etapa, dataCorrida);
     const importId = backupId || `${dataCorrida}_${normalizarChave(campeonato)}_${cfg.tipo}_etapa_${etapa}_${Date.now()}`;
@@ -449,22 +468,23 @@ async function salvarSelecionadosNoFirestore({
 
     await resultadoDocRef.set(toFirestoreSafe({
         campeonato,
+        campeonato_id: campeonatoDocId,
         etapa: Number(etapa),
         dataCorrida,
         resultadoDocId,
         atualizadoEmISO: agoraISO,
-        caminhoFirestore: `${campeonatoCollectionId}/campeonato/resultado_final/${resultadoDocId}`
+        caminhoBackup: backupId ? `backups_importacao/${backupId}` : "",
+        caminhoFirestore: `campeonado/${campeonatoDocId}/resultado_final/${resultadoDocId}`
     }), { merge: true });
 
     await salvarPilotosImportadosNoFirestore({
-        campRef,
         campeonato,
         selecionados
     });
 
     const batch = firestore.batch();
 
-    const subcollectionName = cfg.tipo === "classificacao" ? "classificacao" : "pilotos";
+    const subcollectionName = cfg.tipo === "classificacao" ? "classificacao" : "pilotos_resultado";
     const resumoField = cfg.tipo === "classificacao" ? "classificacaoResumo" : "resultadoFinalResumo";
 
     selecionados.forEach((p, idx) => {
@@ -474,12 +494,14 @@ async function salvarSelecionadosNoFirestore({
         batch.set(ref, toFirestoreSafe({
             ...selectEndFirebasePayload(p, { nomeArquivo }),
             campeonato,
+            campeonato_id: campeonatoDocId,
             etapa: Number(etapa),
             dataCorrida,
             tipoArquivo: cfg.tipo,
             tipoLabel: cfg.label,
             idImportacao: importId,
             nomeArquivo: nomeArquivo || "",
+            id_piloto: p.driver_id || "",
             posicao_geral_arquivo: Number(p.posicao_final || p.pos || 0),
             kart_numero: p.kart_numero || "",
             melhor_tempo: p.melhor_tempo || "",
@@ -488,6 +510,7 @@ async function salvarSelecionadosNoFirestore({
             voltas: p.voltas ?? null,
             classe: p.classe || "",
             comentarios: p.comentarios || "",
+            caminhoBackup: backupId ? `backups_importacao/${backupId}` : "",
             criadoEmISO: agoraISO,
             atualizadoEmISO: agoraISO
         }), { merge: true });
@@ -503,6 +526,7 @@ async function salvarSelecionadosNoFirestore({
             atualizadoEmISO: agoraISO,
             pilotosSelecionados: selecionados.map((p, idx) => ({
                 ordem: idx + 1,
+                id_piloto: p.driver_id || "",
                 driver_id: p.driver_id || "",
                 driver_name: p.driver_name || "",
                 posicao_geral_arquivo: Number(p.posicao_final || p.pos || 0),
@@ -520,7 +544,7 @@ async function salvarSelecionadosNoFirestore({
     return {
         importId,
         resultadoDocId,
-        caminhoFirestore: `${campeonatoCollectionId}/campeonato/resultado_final/${resultadoDocId}`,
+        caminhoFirestore: `campeonado/${campeonatoDocId}/resultado_final/${resultadoDocId}`,
         subcollection: subcollectionName
     };
 }
@@ -577,13 +601,13 @@ async function fazerBackupEProcessar() {
                 backupId: idUnico
             });
 
-            status.innerHTML = `✅ ${cfg.label} salvo no Firestore. Caminho: ${htmlEscape(caminho)}.`;
+            status.innerHTML = `✅ ${cfg.label} salvo no Firestore. Caminho: ${htmlEscape(caminho)}. Backup: ${htmlEscape(backupInfo.caminhoFirestore)}.`;
             document.getElementById("fileImportacaoUnico").value = "";
             return;
         }
 
         if (!conteudoRaw && !IMPORTACAO_PYSCRIPT.length) {
-            status.innerHTML = `⚠️ Arquivo salvo no Firestore em ${htmlEscape(backupInfo.caminhoFirestore)}, mas não foi possível gerar prévia. Para Resultado final/Classificação, use HTML, HTM ou XML.`;
+            status.innerHTML = `⚠️ Arquivo salvo em ${htmlEscape(backupInfo.caminhoFirestore)}, mas não foi possível gerar prévia. Para Resultado final/Classificação, use HTML, HTM ou XML.`;
             return;
         }
 
@@ -605,7 +629,7 @@ async function fazerBackupEProcessar() {
         const selecionadosAntesDoCalculo = IMPORTACAO_PREVIA.filter(i => i.checked && !i.conflitoId);
 
         if (!selecionadosAntesDoCalculo.length) {
-            status.innerHTML = `⚠️ ${cfg.label} salvo como backup no Firestore. Marque ao menos um piloto no checkbox para salvar os selecionados.`;
+            status.innerHTML = `⚠️ ${cfg.label} salvo no backup global do Firestore. Marque ao menos um piloto no checkbox para salvar os selecionados.`;
             recalcularPreviewImportacao(campeonato, true, false);
             document.getElementById("btnConfirmarImportacao").style.display = "none";
             return;
@@ -1788,4 +1812,3 @@ async function salvar(tipo) {
 }
 
 fetchData();
-
