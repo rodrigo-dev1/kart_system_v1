@@ -11,6 +11,10 @@ const firebaseConfig = {
 firebase.initializeApp(firebaseConfig);
 const firestore = firebase.firestore();
 
+const COLLECTION_CAMPEONATOS = "campeonato";
+const COLLECTION_PILOTOS = "Pilotos";
+const COLLECTION_BACKUPS = "backups_importacao";
+
 const URL_API = "https://script.google.com/macros/s/AKfycbwWIL3hrPq6w6pCjCS5-ZYwv3hAY8Rr1ZjYxC-tEh7f9enmpTsZ7fzu9ilWpioQGQEc/exec";
 
 let DB = { campeonatos: [], pilotos: [], resultados: [] };
@@ -266,7 +270,7 @@ function getCampeonatoFirestoreRef(campeonato) {
 
     return {
         campeonatoDocId,
-        ref: firestore.collection("campeonado").doc(campeonatoDocId)
+        ref: firestore.collection(COLLECTION_CAMPEONATOS).doc(campeonatoDocId)
     };
 }
 
@@ -382,7 +386,7 @@ async function marcarPilotosJaVinculadosAoCampeonato(campeonato, exibirHint = tr
             }
 
             const pilotoDocId = normalizarDocId(idPiloto);
-            const pilotoDoc = await firestore.collection("Pilotos").doc(pilotoDocId).get();
+            const pilotoDoc = await firestore.collection(COLLECTION_PILOTOS).doc(pilotoDocId).get();
 
             if (!pilotoDoc.exists) {
                 item.status = "Será cadastrado automaticamente";
@@ -432,13 +436,53 @@ async function prepararDocumentoCampeonato(campeonato) {
         id: campeonatoDocId,
         nome: campeonato,
         atualizadoEmISO: new Date().toISOString(),
-        estrutura: `campeonado/${campeonatoDocId}`
+        estrutura: `${COLLECTION_CAMPEONATOS}/${campeonatoDocId}`
     }, { merge: true });
 
     return {
         campeonatoDocId,
         campRef: ref
     };
+}
+
+async function salvarCampeonatoNoFirestore({
+    nome,
+    descricao,
+    dataInicio,
+    dataFim,
+    acao,
+    nomeAtual = ""
+}) {
+    const docId = normalizarDocId(nome);
+    const campeonatoRef = firestore.collection(COLLECTION_CAMPEONATOS).doc(docId);
+    const snapshot = await campeonatoRef.get();
+
+    if (acao === "criar" && snapshot.exists) {
+        throw new Error("CAMPEONATO_JA_EXISTE");
+    }
+
+    if (acao === "editar") {
+        const docIdAtual = normalizarDocId(nomeAtual || nome);
+
+        if (docId !== docIdAtual && snapshot.exists) {
+            throw new Error("CAMPEONATO_JA_EXISTE");
+        }
+    }
+
+    await campeonatoRef.set(toFirestoreSafe({
+        id: docId,
+        nome,
+        descricao,
+        data_inicio: dataInicio,
+        data_fim: dataFim,
+        estrutura: `${COLLECTION_CAMPEONATOS}/${docId}`,
+        atualizadoEmISO: new Date().toISOString(),
+        criadoEmISO: snapshot.exists
+            ? snapshot.data()?.criadoEmISO || new Date().toISOString()
+            : new Date().toISOString()
+    }), { merge: true });
+
+    return docId;
 }
 
 function montarBackupPayload({
@@ -478,9 +522,9 @@ function montarBackupPayload({
 
 async function salvarBackupImportacaoNoFirestore(backupPayload) {
     const backupId = backupPayload.idImportacao;
-    const caminhoGlobal = `backups_importacao/${backupId}`;
+    const caminhoGlobal = `${COLLECTION_BACKUPS}/${backupId}`;
 
-    await firestore.collection("backups_importacao").doc(backupId).set({
+    await firestore.collection(COLLECTION_BACKUPS).doc(backupId).set({
         ...backupPayload,
         caminhoFirestore: caminhoGlobal,
         atualizadoEmISO: new Date().toISOString()
@@ -515,13 +559,13 @@ async function salvarArquivoSemPreviewNoFirestore({
         dataCorrida,
         tipoArquivo: cfg.tipo,
         nomeArquivo: backupPayload.nomeArquivo || "",
-        caminhoBackup: `backups_importacao/${backupId}`,
-        caminhoFirestore: `campeonado/${campeonatoDocId}/${destino}/${docId}`,
+        caminhoBackup: `${COLLECTION_BACKUPS}/${backupId}`,
+        caminhoFirestore: `${COLLECTION_CAMPEONATOS}/${campeonatoDocId}/${destino}/${docId}`,
         criadoEmISO: new Date().toISOString(),
         atualizadoEmISO: new Date().toISOString()
     }), { merge: true });
 
-    return `campeonado/${campeonatoDocId}/${destino}/${docId}`;
+    return `${COLLECTION_CAMPEONATOS}/${campeonatoDocId}/${destino}/${docId}`;
 }
 
 async function salvarPilotoGlobalNoFirestore(p, campeonato) {
@@ -533,7 +577,7 @@ async function salvarPilotoGlobalNoFirestore(p, campeonato) {
     }
 
     const pilotoDocId = normalizarDocId(idPilotoBruto);
-    const pilotoRef = firestore.collection("Pilotos").doc(pilotoDocId);
+    const pilotoRef = firestore.collection(COLLECTION_PILOTOS).doc(pilotoDocId);
     const snapshot = await pilotoRef.get();
 
     const dadosAtuais = snapshot.exists ? snapshot.data() : {};
@@ -600,8 +644,8 @@ async function salvarSelecionadosNoFirestore({
         dataCorrida,
         resultadoDocId,
         atualizadoEmISO: agoraISO,
-        caminhoBackup: backupId ? `backups_importacao/${backupId}` : "",
-        caminhoFirestore: `campeonado/${campeonatoDocId}/resultado_final/${resultadoDocId}`
+        caminhoBackup: backupId ? `${COLLECTION_BACKUPS}/${backupId}` : "",
+        caminhoFirestore: `${COLLECTION_CAMPEONATOS}/${campeonatoDocId}/resultado_final/${resultadoDocId}`
     }), { merge: true });
 
     await salvarPilotosImportadosNoFirestore({
@@ -638,7 +682,7 @@ async function salvarSelecionadosNoFirestore({
             voltas: p.voltas ?? null,
             classe: p.classe || "",
             comentarios: p.comentarios || "",
-            caminhoBackup: backupId ? `backups_importacao/${backupId}` : "",
+            caminhoBackup: backupId ? `${COLLECTION_BACKUPS}/${backupId}` : "",
             criadoEmISO: agoraISO,
             atualizadoEmISO: agoraISO
         }), { merge: true });
@@ -674,7 +718,7 @@ async function salvarSelecionadosNoFirestore({
     return {
         importId,
         resultadoDocId,
-        caminhoFirestore: `campeonado/${campeonatoDocId}/resultado_final/${resultadoDocId}`,
+        caminhoFirestore: `${COLLECTION_CAMPEONATOS}/${campeonatoDocId}/resultado_final/${resultadoDocId}`,
         subcollection: subcollectionName
     };
 }
@@ -1381,6 +1425,9 @@ async function enviarGestao(payload) {
 
 async function salvarCampeonato() {
     const nome = document.getElementById("camp_nome").value.trim();
+    const descricao = document.getElementById("camp_descricao").value.trim();
+    const dataInicio = document.getElementById("camp_data_inicio").value;
+    const dataFim = document.getElementById("camp_data_fim").value;
 
     if (!nome) {
         document.getElementById("feedbackCampeonato").innerHTML =
@@ -1388,21 +1435,49 @@ async function salvarCampeonato() {
         return;
     }
 
+    const acao = campeonatoEditando === null ? "criar" : "editar";
+    const nomeAtual = campeonatoEditando !== null ? DB.campeonatos[campeonatoEditando].nome : "";
+
+    try {
+        await salvarCampeonatoNoFirestore({
+            nome,
+            descricao,
+            dataInicio,
+            dataFim,
+            acao,
+            nomeAtual
+        });
+    } catch (e) {
+        if (String(e.message || e) === "CAMPEONATO_JA_EXISTE") {
+            alert("Este campeonato já existe no Firebase. Não será cadastrado por cima.");
+            document.getElementById("feedbackCampeonato").innerHTML =
+                '<span class="error">Campeonato já existe no Firebase.</span>';
+            return;
+        }
+
+        console.error(e);
+        alert(`Erro ao salvar campeonato no Firebase: ${e.message || e}`);
+        return;
+    }
+
     const payload = {
         tipo: "campeonatos",
-        acao: campeonatoEditando === null ? "criar" : "editar",
+        acao,
         nome,
-        descrição: document.getElementById("camp_descricao").value.trim(),
-        "data de inicio": document.getElementById("camp_data_inicio").value,
-        "data de fim": document.getElementById("camp_data_fim").value
+        descrição: descricao,
+        "data de inicio": dataInicio,
+        "data de fim": dataFim
     };
 
     if (campeonatoEditando !== null) {
-        payload.nomeAtual = DB.campeonatos[campeonatoEditando].nome;
+        payload.nomeAtual = nomeAtual;
     }
 
     await enviarGestao(payload);
     await garantirPontuacaoPadrao(nome);
+
+    document.getElementById("feedbackCampeonato").innerHTML =
+        "✅ Campeonato salvo no Google Sheets e no Firebase.";
 
     campeonatoEditando = null;
 }
@@ -1652,7 +1727,7 @@ async function carregarHistorico() {
 
     try {
         const snapshot = await firestore
-            .collection("backups_importacao")
+            .collection(COLLECTION_BACKUPS)
             .orderBy("dataUploadISO", "desc")
             .limit(100)
             .get();
@@ -1736,7 +1811,7 @@ function renderArquivosDoDia(dia) {
 
 async function verConteudo(key) {
     try {
-        const doc = await firestore.collection("backups_importacao").doc(key).get();
+        const doc = await firestore.collection(COLLECTION_BACKUPS).doc(key).get();
         const item = doc.exists ? doc.data() : null;
         const win = window.open("", "_blank");
 
@@ -1986,10 +2061,8 @@ async function salvar(tipo) {
 }
 
 async function inicializarRankingFirestore() {
-    if (!RANKING_FIRESTORE_CARREGADO) {
-        await carregarCampeonatosRankingFirestore();
-        RANKING_FIRESTORE_CARREGADO = true;
-    }
+    await carregarCampeonatosRankingFirestore();
+    RANKING_FIRESTORE_CARREGADO = true;
 
     await renderRankingFirestore();
 }
@@ -2003,7 +2076,7 @@ async function carregarCampeonatosRankingFirestore() {
     try {
         if (status) status.innerHTML = "⏳ Carregando campeonatos do Firestore...";
 
-        const snapshot = await firestore.collection("campeonado").get();
+        const snapshot = await firestore.collection(COLLECTION_CAMPEONATOS).get();
 
         const campeonatos = [];
 
@@ -2020,15 +2093,21 @@ async function carregarCampeonatosRankingFirestore() {
 
         if (!campeonatos.length) {
             select.innerHTML = '<option value="">Nenhum campeonato encontrado no Firebase</option>';
-            if (status) status.innerHTML = "Nenhum campeonato encontrado na collection campeonado.";
+            if (status) status.innerHTML = `Nenhum campeonato encontrado na collection ${COLLECTION_CAMPEONATOS}.`;
             return;
         }
+
+        const valorAtual = select.value;
 
         select.innerHTML =
             '<option value="">Selecione o Campeonato</option>' +
             campeonatos.map(c =>
                 `<option value="${htmlEscape(c.id)}">${htmlEscape(c.nome)}</option>`
             ).join("");
+
+        if (valorAtual && campeonatos.some(c => c.id === valorAtual)) {
+            select.value = valorAtual;
+        }
 
         if (status) status.innerHTML = "Selecione um campeonato para carregar o ranking do Firestore.";
     } catch (e) {
@@ -2126,7 +2205,7 @@ function somarClassificacaoRankingFirestore(rankingMap, item, etapaInfo) {
 }
 
 async function buscarRankingFirestorePorCampeonato(campeonatoDocId) {
-    const campRef = firestore.collection("campeonado").doc(campeonatoDocId);
+    const campRef = firestore.collection(COLLECTION_CAMPEONATOS).doc(campeonatoDocId);
     const resultadosSnapshot = await campRef.collection("resultado_final").get();
 
     const rankingMap = new Map();
