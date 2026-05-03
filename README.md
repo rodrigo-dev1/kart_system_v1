@@ -4,7 +4,7 @@
 
 ### Estrutura collection
 ```text
-campeonado
+campeonato
   └── pre_temporada
       ├── nome: "Pré Temporada"
       ├── resultado_final

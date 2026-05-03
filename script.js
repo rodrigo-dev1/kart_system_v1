@@ -2149,6 +2149,7 @@ function somarResultadoFinalRankingFirestore(rankingMap, item, etapaInfo) {
 
     const pontosPosicao = Number(item.pontos || 0);
     const bonusMelhorTempoCorrida = Number(item.melhor_tempo_ponto || 0);
+    const posicaoGrafico = Number(item.posicao_final2 || item.posicao_geral_arquivo || 0);
 
     linha.driver_id = linha.driver_id || driverId;
     linha.driver_name = linha.driver_name !== "-" ? linha.driver_name : driverName;
@@ -2162,6 +2163,7 @@ function somarResultadoFinalRankingFirestore(rankingMap, item, etapaInfo) {
         etapa: etapaInfo.etapa || "-",
         dataCorrida: etapaInfo.dataCorrida || "-",
         posicao_final2: item.posicao_final2 || "-",
+        posicao_grafico: posicaoGrafico,
         pontos: pontosPosicao,
         melhor_tempo: item.melhor_tempo || "-",
         melhor_tempo_ponto: bonusMelhorTempoCorrida
@@ -2187,6 +2189,8 @@ function somarClassificacaoRankingFirestore(rankingMap, item, etapaInfo) {
         Number(item.pontos || 0)
     );
 
+    const posicaoGrafico = Number(item.posicao_final2 || item.posicao_geral_arquivo || 0);
+
     linha.driver_id = linha.driver_id || driverId;
     linha.driver_name = linha.driver_name !== "-" ? linha.driver_name : driverName;
 
@@ -2198,6 +2202,7 @@ function somarClassificacaoRankingFirestore(rankingMap, item, etapaInfo) {
         etapa: etapaInfo.etapa || "-",
         dataCorrida: etapaInfo.dataCorrida || "-",
         posicao_final2: item.posicao_final2 || "-",
+        posicao_grafico: posicaoGrafico,
         pontos: bonusMelhorTempoClassificacao,
         melhor_tempo: item.melhor_tempo || "-",
         melhor_tempo_ponto: bonusMelhorTempoClassificacao
@@ -2272,6 +2277,8 @@ async function renderRankingFirestore() {
             return;
         }
 
+        const totalGeral = ranking.reduce((acc, item) => acc + Number(item.pontos_total || 0), 0);
+
         let h = `
             <table>
                 <tr>
@@ -2282,11 +2289,18 @@ async function renderRankingFirestore() {
         `;
 
         ranking.forEach((p, i) => {
+            const percentual = totalGeral
+                ? ((Number(p.pontos_total || 0) / totalGeral) * 100).toFixed(1)
+                : "0.0";
+
             h += `
                 <tr onclick="toggleHistoricoLinhaFirestore(${i})" style="cursor:pointer;">
                     <td>${i + 1}º</td>
                     <td>${htmlEscape(p.driver_name || "-")}</td>
-                    <td>${p.pontos_total}</td>
+                    <td>
+                        ${p.pontos_total}
+                        <small style="color:#aaa; font-size:11px;">(${percentual}%)</small>
+                    </td>
                 </tr>
                 <tr id="hist_firestore_row_${i}" class="hist-detalhe" data-open="0" style="display:none;"></tr>
             `;
@@ -2312,6 +2326,210 @@ async function renderRankingFirestore() {
     }
 }
 
+function montarTabelaResumoRankingFirestore(item) {
+    return `
+        <div style="max-width:100%; overflow-x:auto; margin-bottom:10px;">
+            <table style="font-size:12px; min-width:620px;">
+                <tr>
+                    <th>Pontos posição corrida</th>
+                    <th>Melhor volta corrida</th>
+                    <th>Melhor volta classificação</th>
+                </tr>
+                <tr>
+                    <td>${Number(item.pontos_posicao_corrida || 0)}</td>
+                    <td>${Number(item.pontos_melhor_tempo_corrida || 0)}</td>
+                    <td>${Number(item.pontos_melhor_tempo_classificacao || 0)}</td>
+                </tr>
+            </table>
+        </div>
+    `;
+}
+
+function montarTabelaDetalhesRankingFirestore(detalhes) {
+    if (!detalhes.length) {
+        return "<p class='muted'>Sem detalhes para exibir.</p>";
+    }
+
+    const detalhesOrdenados = [...detalhes].sort((a, b) => {
+        const dataA = String(a.dataCorrida || "");
+        const dataB = String(b.dataCorrida || "");
+        const etapaA = Number(a.etapa || 0);
+        const etapaB = Number(b.etapa || 0);
+        const tipoA = String(a.tipo || "");
+        const tipoB = String(b.tipo || "");
+
+        return dataA.localeCompare(dataB) ||
+            etapaA - etapaB ||
+            tipoA.localeCompare(tipoB);
+    });
+
+    return `
+        <div style="max-width:100%; overflow-x:auto;">
+            <table style="margin-top:10px; font-size:12px; min-width:860px;">
+                <tr>
+                    <th>Tipo</th>
+                    <th>Data</th>
+                    <th>Etapa</th>
+                    <th>Posição</th>
+                    <th>Melhor tempo</th>
+                    <th>Pts</th>
+                    <th>Melhor tempo?</th>
+                </tr>
+                ${detalhesOrdenados.map(d => `
+                    <tr>
+                        <td>${htmlEscape(d.tipo || "-")}</td>
+                        <td>${htmlEscape(d.dataCorrida || "-")}</td>
+                        <td>${htmlEscape(d.etapa || "-")}</td>
+                        <td>${htmlEscape(d.posicao_final2 || d.posicao_grafico || "-")}</td>
+                        <td>${htmlEscape(d.melhor_tempo || "-")}</td>
+                        <td>${Number(d.pontos || 0)}</td>
+                        <td>${Number(d.melhor_tempo_ponto || 0)}</td>
+                    </tr>
+                `).join("")}
+            </table>
+        </div>
+    `;
+}
+
+function gerarGraficoHistoricoFirestoreSVG(detalhes) {
+    const pontosPorEtapa = new Map();
+
+    (detalhes || []).forEach(item => {
+        const etapa = String(item.etapa || "-");
+        const dataCorrida = String(item.dataCorrida || "-");
+        const key = `${dataCorrida}_${etapa}`;
+
+        if (!pontosPorEtapa.has(key)) {
+            pontosPorEtapa.set(key, {
+                key,
+                etapa,
+                dataCorrida,
+                resultado: null,
+                classificacao: null
+            });
+        }
+
+        const linha = pontosPorEtapa.get(key);
+        const posicao = Number(item.posicao_grafico || item.posicao_final2 || 0);
+
+        if (!posicao) return;
+
+        if (String(item.tipo || "").toLowerCase().includes("resultado")) {
+            linha.resultado = posicao;
+        }
+
+        if (String(item.tipo || "").toLowerCase().includes("classificação") ||
+            String(item.tipo || "").toLowerCase().includes("classificacao")) {
+            linha.classificacao = posicao;
+        }
+    });
+
+    const pontos = Array.from(pontosPorEtapa.values())
+        .sort((a, b) =>
+            String(a.dataCorrida).localeCompare(String(b.dataCorrida)) ||
+            Number(a.etapa || 0) - Number(b.etapa || 0)
+        );
+
+    const posicoes = pontos
+        .flatMap(p => [p.resultado, p.classificacao])
+        .filter(v => v !== null && Number.isFinite(Number(v)));
+
+    if (!pontos.length || !posicoes.length) {
+        return "<p class='muted'>Sem posições suficientes para gerar o gráfico.</p>";
+    }
+
+    const w = 720;
+    const h = 260;
+    const ml = 42;
+    const mr = 18;
+    const mt = 34;
+    const mb = 44;
+
+    const maxPos = Math.max(...posicoes, 1);
+    const stepX = (w - ml - mr) / Math.max(pontos.length - 1, 1);
+    const stepY = (h - mt - mb) / Math.max(maxPos - 1, 1);
+
+    const x = i => ml + (i * stepX);
+    const y = pos => mt + ((Number(pos) - 1) * stepY);
+
+    function montarPolyline(campo) {
+        return pontos
+            .map((p, i) => {
+                const valor = p[campo];
+                if (valor === null || !Number.isFinite(Number(valor))) return null;
+                return `${x(i)},${y(valor)}`;
+            })
+            .filter(Boolean)
+            .join(" ");
+    }
+
+    function montarCirculos(campo, cor) {
+        return pontos.map((p, i) => {
+            const valor = p[campo];
+
+            if (valor === null || !Number.isFinite(Number(valor))) return "";
+
+            return `
+                <circle cx="${x(i)}" cy="${y(valor)}" r="4" fill="${cor}">
+                    <title>${campo === "resultado" ? "Resultado Final" : "Classificação"} • Etapa ${p.etapa} • P${valor}</title>
+                </circle>
+            `;
+        }).join("");
+    }
+
+    let linhasGrade = "";
+
+    for (let p = 1; p <= maxPos; p++) {
+        linhasGrade += `<line x1="${ml}" y1="${y(p)}" x2="${w - mr}" y2="${y(p)}" stroke="#2e3542" stroke-width="1"/>`;
+        linhasGrade += `<text x="8" y="${y(p) + 4}" fill="#aaa" font-size="10">P${p}</text>`;
+    }
+
+    const labels = pontos.map((p, i) => `
+        <text x="${x(i)}" y="${h - 18}" fill="#aaa" font-size="10" text-anchor="middle">E${htmlEscape(p.etapa)}</text>
+        <text x="${x(i)}" y="${h - 6}" fill="#777" font-size="9" text-anchor="middle">${htmlEscape(String(p.dataCorrida).slice(5))}</text>
+    `).join("");
+
+    const linhaResultado = montarPolyline("resultado");
+    const linhaClassificacao = montarPolyline("classificacao");
+
+    return `
+        <div style="max-width:100%; overflow-x:auto;">
+            <svg viewBox="0 0 ${w} ${h}" preserveAspectRatio="xMidYMid meet"
+                 style="display:block; width:100%; min-width:680px; max-width:100%; height:auto; background:#141923; border-radius:8px;">
+                ${linhasGrade}
+
+                <text x="${ml}" y="18" fill="#ff4b4b" font-size="11">● Resultado Final</text>
+                <text x="${ml + 140}" y="18" fill="#42a5f5" font-size="11">● Classificação</text>
+
+                ${linhaResultado ? `<polyline points="${linhaResultado}" fill="none" stroke="#ff4b4b" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"/>` : ""}
+                ${linhaClassificacao ? `<polyline points="${linhaClassificacao}" fill="none" stroke="#42a5f5" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"/>` : ""}
+
+                ${montarCirculos("resultado", "#ff4b4b")}
+                ${montarCirculos("classificacao", "#42a5f5")}
+
+                ${labels}
+            </svg>
+        </div>
+    `;
+}
+
+function setRankingFirestoreDetalheTab(idx, aba) {
+    const relacao = document.getElementById(`ranking_fb_relacao_${idx}`);
+    const grafico = document.getElementById(`ranking_fb_grafico_${idx}`);
+    const btnRelacao = document.getElementById(`ranking_fb_btn_relacao_${idx}`);
+    const btnGrafico = document.getElementById(`ranking_fb_btn_grafico_${idx}`);
+
+    if (!relacao || !grafico || !btnRelacao || !btnGrafico) return;
+
+    const mostrarRelacao = aba === "relacao";
+
+    relacao.style.display = mostrarRelacao ? "block" : "none";
+    grafico.style.display = mostrarRelacao ? "none" : "block";
+
+    btnRelacao.style.background = mostrarRelacao ? "#ff4b4b" : "#252a34";
+    btnGrafico.style.background = mostrarRelacao ? "#252a34" : "#ff4b4b";
+}
+
 function toggleHistoricoLinhaFirestore(idx) {
     const row = document.getElementById(`hist_firestore_row_${idx}`);
     const item = RANKING_FIRESTORE_CACHE[idx];
@@ -2328,44 +2546,43 @@ function toggleHistoricoLinhaFirestore(idx) {
     if (aberto) return;
 
     const detalhes = item.etapas || [];
-
-    const tabelaDetalhes = detalhes.length ? `
-        <table style="margin-top:10px; font-size:12px;">
-            <tr>
-                <th>Tipo</th>
-                <th>Data</th>
-                <th>Etapa</th>
-                <th>Posição</th>
-                <th>Melhor tempo</th>
-                <th>Pts</th>
-                <th>Melhor tempo?</th>
-            </tr>
-            ${detalhes.map(d => `
-                <tr>
-                    <td>${htmlEscape(d.tipo || "-")}</td>
-                    <td>${htmlEscape(d.dataCorrida || "-")}</td>
-                    <td>${htmlEscape(d.etapa || "-")}</td>
-                    <td>${htmlEscape(d.posicao_final2 || "-")}</td>
-                    <td>${htmlEscape(d.melhor_tempo || "-")}</td>
-                    <td>${Number(d.pontos || 0)}</td>
-                    <td>${Number(d.melhor_tempo_ponto || 0)}</td>
-                </tr>
-            `).join("")}
-        </table>
-    ` : "<p class='muted'>Sem detalhes para exibir.</p>";
+    const tabelaResumo = montarTabelaResumoRankingFirestore(item);
+    const tabelaDetalhes = montarTabelaDetalhesRankingFirestore(detalhes);
+    const grafico = gerarGraficoHistoricoFirestoreSVG(detalhes);
 
     row.innerHTML = `
         <td colspan="3">
-            <div style="padding:8px 4px; max-width:100%; overflow:hidden;">
-                <div class="hint">
-                    <strong>${htmlEscape(item.driver_name || "-")}</strong><br>
-                    Pontos posição corrida: ${item.pontos_posicao_corrida}<br>
-                    Melhor volta corrida: ${item.pontos_melhor_tempo_corrida}<br>
-                    Melhor volta classificação: ${item.pontos_melhor_tempo_classificacao}<br>
-                    Total: ${item.pontos_total}
+            <div style="padding:10px 4px; max-width:100%; overflow:hidden;">
+                <div class="hint" style="margin-bottom:8px;">
+                    <strong>${htmlEscape(item.driver_name || "-")}</strong>
                 </div>
-                <div style="max-width:100%; overflow-x:auto;">
+
+                ${tabelaResumo}
+
+                <div style="display:flex; gap:8px; margin:10px 0; flex-wrap:wrap;">
+                    <button
+                        id="ranking_fb_btn_relacao_${idx}"
+                        onclick="event.stopPropagation(); setRankingFirestoreDetalheTab(${idx}, 'relacao')"
+                        style="width:auto; padding:8px 12px; margin:0; background:#ff4b4b;"
+                    >
+                        Relação
+                    </button>
+
+                    <button
+                        id="ranking_fb_btn_grafico_${idx}"
+                        onclick="event.stopPropagation(); setRankingFirestoreDetalheTab(${idx}, 'grafico')"
+                        style="width:auto; padding:8px 12px; margin:0; background:#252a34; border:1px solid #3a4252;"
+                    >
+                        Gráfico
+                    </button>
+                </div>
+
+                <div id="ranking_fb_relacao_${idx}" style="display:block;">
                     ${tabelaDetalhes}
+                </div>
+
+                <div id="ranking_fb_grafico_${idx}" style="display:none;">
+                    ${grafico}
                 </div>
             </div>
         </td>
