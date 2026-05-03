@@ -10,6 +10,7 @@ const firebaseConfig = {
 
 firebase.initializeApp(firebaseConfig);
 const database = firebase.database();
+const firestore = firebase.firestore();
 
 const URL_API = "https://script.google.com/macros/s/AKfycbwWIL3hrPq6w6pCjCS5-ZYwv3hAY8Rr1ZjYxC-tEh7f9enmpTsZ7fzu9ilWpioQGQEc/exec";
 
@@ -230,7 +231,17 @@ async function fazerBackupEProcessar() {
     }
 
     recalcularPreviewImportacao(campeonato, true, true);
-    status.innerHTML = `✅ ${cfg.label} salvo como backup. Prévia gerada com ${selecionadosAntesDoCalculo.length} piloto(s) selecionado(s).`;
+    const selecionadosParaSalvar = IMPORTACAO_PREVIA.filter(i => i.checked && !i.conflitoId).sort((a, b) => a.posGeral - b.posGeral);
+    await salvarSelecionadosNoFirestore({
+        campeonato,
+        etapa,
+        dataCorrida,
+        cfg,
+        selecionados: selecionadosParaSalvar,
+        nomeArquivo: file.name
+    });
+
+    status.innerHTML = `✅ ${cfg.label} salvo como backup e também no Firestore com ${selecionadosParaSalvar.length} piloto(s) selecionado(s).`;
     document.getElementById("btnConfirmarImportacao").style.display = "block";
 }
 
@@ -534,6 +545,68 @@ function toggleSelecionadoImport(idx) {
             : "none";
 }
 
+
+function normalizarNomeColecao(v) {
+    return String(v || "").trim().replace(/\/+/g, "-") || "campeonato_sem_nome";
+}
+
+async function salvarSelecionadosNoFirestore({ campeonato, etapa, dataCorrida, cfg, selecionados, nomeArquivo }) {
+    const campeonatoId = normalizarNomeColecao(campeonato);
+    const importId = `${dataCorrida}_${normalizarChave(campeonato)}_${cfg.tipo}_etapa_${etapa}_${Date.now()}`;
+
+    const campRef = firestore.collection("campeonatos").doc(campeonatoId);
+    await campRef.set({ nome: campeonato, atualizadoEm: new Date().toISOString() }, { merge: true });
+
+    if (cfg.tipo === "resultado_final") {
+        const batch = firestore.batch();
+        selecionados.forEach((p, idx) => {
+            const itemId = `${importId}_${normalizarChave(p.driver_id || p.driver_name || `piloto_${idx + 1}`)}`;
+            const ref = campRef.collection("resultado_final").doc(itemId);
+            batch.set(ref, {
+                ...selectEndFirebasePayload(p, { nomeArquivo }),
+                campeonato,
+                etapa: Number(etapa),
+                dataCorrida,
+                tipoArquivo: cfg.tipo,
+                idImportacao: importId,
+                criadoEm: new Date().toISOString()
+            });
+        });
+        await batch.commit();
+    }
+
+    if (cfg.tipo === "classificacao") {
+        const classDocRef = campRef.collection("resultado_final").doc(importId);
+        await classDocRef.set({
+            campeonato,
+            etapa: Number(etapa),
+            dataCorrida,
+            tipoArquivo: cfg.tipo,
+            nomeArquivo: nomeArquivo || "",
+            idImportacao: importId,
+            criadoEm: new Date().toISOString()
+        }, { merge: true });
+
+        const batch = firestore.batch();
+        selecionados.forEach((p, idx) => {
+            const itemId = `${importId}_${normalizarChave(p.driver_id || p.driver_name || `piloto_${idx + 1}`)}`;
+            const ref = classDocRef.collection("classificacao").doc(itemId);
+            batch.set(ref, {
+                ...selectEndFirebasePayload(p, { nomeArquivo }),
+                campeonato,
+                etapa: Number(etapa),
+                dataCorrida,
+                tipoArquivo: cfg.tipo,
+                idImportacao: importId,
+                criadoEm: new Date().toISOString()
+            });
+        });
+        await batch.commit();
+    }
+
+    return importId;
+}
+
 function selectEndFirebasePayload(item, contexto) {
     // Equivalente à DEF Python:
     // df[["arquivo_origem", "evento", "driver_id", "driver_name", "diff", "total_tempo", "posicao_final2", "pontos"]]
@@ -562,42 +635,13 @@ async function confirmarImportacao() {
     const selecionados = IMPORTACAO_PREVIA.filter(i => i.checked && !i.conflitoId).sort((a, b) => a.posGeral - b.posGeral);
     if (!selecionados.length) return alert("Selecione ao menos um piloto.");
 
-    const destino = cfg.destinoFirebase;
-    const importId = `${data}_${normalizarChave(campeonato)}_${cfg.tipo}_etapa_${etapa}_${Date.now()}`;
-    const contexto = {
-        campeonato,
-        etapa,
-        data,
-        tipoArquivo: cfg.tipo,
-        nomeArquivo: file?.name || IMPORTACAO_PYSCRIPT_ARQUIVO || ""
-    };
+    const nomeArquivo = file?.name || IMPORTACAO_PYSCRIPT_ARQUIVO || "";
 
-    status.innerHTML = `⏳ Importando ${selecionados.length} piloto(s) em ${destino}...`;
-
-    const updates = {};
-    selecionados.forEach((p, idx) => {
-        const chavePiloto = p.driver_id || normalizarChave(p.driver_name || `piloto_${idx + 1}`);
-        const itemId = `${importId}_${normalizarChave(chavePiloto)}`;
-        updates[`${destino}/${itemId}`] = selectEndFirebasePayload(p, contexto);
-    });
-
-    updates[`importacoes/${importId}`] = {
-        idImportacao: importId,
-        destinoFirebase: destino,
-        campeonato,
-        etapa: Number(etapa),
-        dataCorrida: data,
-        tipoArquivo: cfg.tipo,
-        tipoLabel: cfg.label,
-        nomeArquivo: contexto.nomeArquivo,
-        totalSelecionados: selecionados.length,
-        dataImportacao: new Date().toLocaleString("pt-BR"),
-        dataImportacaoISO: new Date().toISOString()
-    };
+    status.innerHTML = `⏳ Importando ${selecionados.length} piloto(s) para o Firestore...`;
 
     try {
-        await database.ref().update(updates);
-        status.innerHTML = `✅ Importação concluída: ${selecionados.length} piloto(s) gravado(s) em ${destino}.`;
+        await salvarSelecionadosNoFirestore({ campeonato, etapa, dataCorrida: data, cfg, selecionados, nomeArquivo });
+        status.innerHTML = `✅ Importação concluída: ${selecionados.length} piloto(s) gravado(s) no Firestore.`;
         alert(`✅ Importação concluída com ${selecionados.length} piloto(s).`);
         document.getElementById("btnConfirmarImportacao").style.display = "none";
     } catch (e) {
