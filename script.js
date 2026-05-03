@@ -18,11 +18,15 @@ let HISTORICO_CACHE = [];
 let abaGestaoAtual = "campeonatos";
 let campeonatoEditando = null;
 let pilotoEditando = null;
+
 let IMPORTACAO_PREVIA = [];
 let IMPORTACAO_PYSCRIPT = [];
 let IMPORTACAO_PYSCRIPT_ARQUIVO = "";
 let IMPORTACAO_PYSCRIPT_TIPO = "";
 let IMPORTACAO_PREVIA_GERADA = false;
+
+let RANKING_FIRESTORE_CARREGADO = false;
+let RANKING_FIRESTORE_CACHE = [];
 
 const PONTOS_PADRAO = {
     1: 20,
@@ -142,6 +146,22 @@ function arquivoParaDataUrl(file) {
     });
 }
 
+function getPilotoCampo(p, ...keys) {
+    const achado = keys.find(k => p[k] !== undefined && p[k] !== null);
+    return achado ? p[achado] : "";
+}
+
+function vinculosPiloto(p) {
+    const bruto = getPilotoCampo(p, "campeonatos", "vinculos");
+
+    if (Array.isArray(bruto)) return bruto;
+
+    return String(bruto || "")
+        .split(",")
+        .map(v => v.trim())
+        .filter(Boolean);
+}
+
 function pilotosDoCampeonato(campeonato) {
     return DB.pilotos.filter(p => vinculosPiloto(p).includes(campeonato));
 }
@@ -246,7 +266,7 @@ function getCampeonatoFirestoreRef(campeonato) {
 
     return {
         campeonatoDocId,
-        ref: firestore.collection("campeonato").doc(campeonatoDocId)
+        ref: firestore.collection("campeonado").doc(campeonatoDocId)
     };
 }
 
@@ -412,7 +432,7 @@ async function prepararDocumentoCampeonato(campeonato) {
         id: campeonatoDocId,
         nome: campeonato,
         atualizadoEmISO: new Date().toISOString(),
-        estrutura: `campeonato/${campeonatoDocId}`
+        estrutura: `campeonado/${campeonatoDocId}`
     }, { merge: true });
 
     return {
@@ -496,12 +516,12 @@ async function salvarArquivoSemPreviewNoFirestore({
         tipoArquivo: cfg.tipo,
         nomeArquivo: backupPayload.nomeArquivo || "",
         caminhoBackup: `backups_importacao/${backupId}`,
-        caminhoFirestore: `campeonato/${campeonatoDocId}/${destino}/${docId}`,
+        caminhoFirestore: `campeonado/${campeonatoDocId}/${destino}/${docId}`,
         criadoEmISO: new Date().toISOString(),
         atualizadoEmISO: new Date().toISOString()
     }), { merge: true });
 
-    return `campeonato/${campeonatoDocId}/${destino}/${docId}`;
+    return `campeonado/${campeonatoDocId}/${destino}/${docId}`;
 }
 
 async function salvarPilotoGlobalNoFirestore(p, campeonato) {
@@ -581,7 +601,7 @@ async function salvarSelecionadosNoFirestore({
         resultadoDocId,
         atualizadoEmISO: agoraISO,
         caminhoBackup: backupId ? `backups_importacao/${backupId}` : "",
-        caminhoFirestore: `campeonato/${campeonatoDocId}/resultado_final/${resultadoDocId}`
+        caminhoFirestore: `campeonado/${campeonatoDocId}/resultado_final/${resultadoDocId}`
     }), { merge: true });
 
     await salvarPilotosImportadosNoFirestore({
@@ -654,7 +674,7 @@ async function salvarSelecionadosNoFirestore({
     return {
         importId,
         resultadoDocId,
-        caminhoFirestore: `campeonato/${campeonatoDocId}/resultado_final/${resultadoDocId}`,
+        caminhoFirestore: `campeonado/${campeonatoDocId}/resultado_final/${resultadoDocId}`,
         subcollection: subcollectionName
     };
 }
@@ -1275,22 +1295,6 @@ async function confirmarImportacao() {
 function abrirGestao() {
     show("gestao");
     renderGestao();
-}
-
-function getPilotoCampo(p, ...keys) {
-    const achado = keys.find(k => p[k] !== undefined && p[k] !== null);
-    return achado ? p[achado] : "";
-}
-
-function vinculosPiloto(p) {
-    const bruto = getPilotoCampo(p, "campeonatos", "vinculos");
-
-    if (Array.isArray(bruto)) return bruto;
-
-    return String(bruto || "")
-        .split(",")
-        .map(v => v.trim())
-        .filter(Boolean);
 }
 
 function trocarAbaGestao(aba) {
@@ -1979,6 +1983,317 @@ async function salvar(tipo) {
         alert("Erro de rede");
         btn.disabled = false;
     }
+}
+
+async function inicializarRankingFirestore() {
+    if (!RANKING_FIRESTORE_CARREGADO) {
+        await carregarCampeonatosRankingFirestore();
+        RANKING_FIRESTORE_CARREGADO = true;
+    }
+
+    await renderRankingFirestore();
+}
+
+async function carregarCampeonatosRankingFirestore() {
+    const select = document.getElementById("filtro_rank_firebase_camp");
+    const status = document.getElementById("rankingFirestoreStatus");
+
+    if (!select) return;
+
+    try {
+        if (status) status.innerHTML = "⏳ Carregando campeonatos do Firestore...";
+
+        const snapshot = await firestore.collection("campeonado").get();
+
+        const campeonatos = [];
+
+        snapshot.forEach(doc => {
+            const data = doc.data() || {};
+
+            campeonatos.push({
+                id: doc.id,
+                nome: data.nome || doc.id
+            });
+        });
+
+        campeonatos.sort((a, b) => a.nome.localeCompare(b.nome));
+
+        if (!campeonatos.length) {
+            select.innerHTML = '<option value="">Nenhum campeonato encontrado no Firebase</option>';
+            if (status) status.innerHTML = "Nenhum campeonato encontrado na collection campeonado.";
+            return;
+        }
+
+        select.innerHTML =
+            '<option value="">Selecione o Campeonato</option>' +
+            campeonatos.map(c =>
+                `<option value="${htmlEscape(c.id)}">${htmlEscape(c.nome)}</option>`
+            ).join("");
+
+        if (status) status.innerHTML = "Selecione um campeonato para carregar o ranking do Firestore.";
+    } catch (e) {
+        console.error(e);
+
+        select.innerHTML = '<option value="">Erro ao carregar campeonatos</option>';
+
+        if (status) {
+            status.innerHTML = `❌ Erro ao carregar campeonatos do Firestore: ${htmlEscape(e.message || e)}`;
+        }
+    }
+}
+
+function criarLinhaRankingFirestoreBase(driverId, driverName) {
+    return {
+        driver_id: driverId || "",
+        driver_name: driverName || "-",
+        pontos_posicao_corrida: 0,
+        pontos_melhor_tempo_corrida: 0,
+        pontos_melhor_tempo_classificacao: 0,
+        pontos_total: 0,
+        etapas: []
+    };
+}
+
+function somarResultadoFinalRankingFirestore(rankingMap, item, etapaInfo) {
+    const driverId = String(item.driver_id || item.id_piloto || "").trim();
+    const driverName = item.driver_name || item.nome || "-";
+
+    if (!driverId && !driverName) return;
+
+    const key = driverId || normalizarDocId(driverName);
+
+    if (!rankingMap.has(key)) {
+        rankingMap.set(key, criarLinhaRankingFirestoreBase(driverId, driverName));
+    }
+
+    const linha = rankingMap.get(key);
+
+    const pontosPosicao = Number(item.pontos || 0);
+    const bonusMelhorTempoCorrida = Number(item.melhor_tempo_ponto || 0);
+
+    linha.driver_id = linha.driver_id || driverId;
+    linha.driver_name = linha.driver_name !== "-" ? linha.driver_name : driverName;
+
+    linha.pontos_posicao_corrida += pontosPosicao;
+    linha.pontos_melhor_tempo_corrida += bonusMelhorTempoCorrida;
+    linha.pontos_total += pontosPosicao + bonusMelhorTempoCorrida;
+
+    linha.etapas.push({
+        tipo: "Resultado Final",
+        etapa: etapaInfo.etapa || "-",
+        dataCorrida: etapaInfo.dataCorrida || "-",
+        posicao_final2: item.posicao_final2 || "-",
+        pontos: pontosPosicao,
+        melhor_tempo: item.melhor_tempo || "-",
+        melhor_tempo_ponto: bonusMelhorTempoCorrida
+    });
+}
+
+function somarClassificacaoRankingFirestore(rankingMap, item, etapaInfo) {
+    const driverId = String(item.driver_id || item.id_piloto || "").trim();
+    const driverName = item.driver_name || item.nome || "-";
+
+    if (!driverId && !driverName) return;
+
+    const key = driverId || normalizarDocId(driverName);
+
+    if (!rankingMap.has(key)) {
+        rankingMap.set(key, criarLinhaRankingFirestoreBase(driverId, driverName));
+    }
+
+    const linha = rankingMap.get(key);
+
+    const bonusMelhorTempoClassificacao = Math.max(
+        Number(item.melhor_tempo_ponto || 0),
+        Number(item.pontos || 0)
+    );
+
+    linha.driver_id = linha.driver_id || driverId;
+    linha.driver_name = linha.driver_name !== "-" ? linha.driver_name : driverName;
+
+    linha.pontos_melhor_tempo_classificacao += bonusMelhorTempoClassificacao;
+    linha.pontos_total += bonusMelhorTempoClassificacao;
+
+    linha.etapas.push({
+        tipo: "Classificação",
+        etapa: etapaInfo.etapa || "-",
+        dataCorrida: etapaInfo.dataCorrida || "-",
+        posicao_final2: item.posicao_final2 || "-",
+        pontos: bonusMelhorTempoClassificacao,
+        melhor_tempo: item.melhor_tempo || "-",
+        melhor_tempo_ponto: bonusMelhorTempoClassificacao
+    });
+}
+
+async function buscarRankingFirestorePorCampeonato(campeonatoDocId) {
+    const campRef = firestore.collection("campeonado").doc(campeonatoDocId);
+    const resultadosSnapshot = await campRef.collection("resultado_final").get();
+
+    const rankingMap = new Map();
+
+    for (const resultadoDoc of resultadosSnapshot.docs) {
+        const etapaInfo = resultadoDoc.data() || {};
+        const resultadoRef = resultadoDoc.ref;
+
+        const pilotosResultadoSnapshot = await resultadoRef.collection("pilotos_resultado").get();
+
+        pilotosResultadoSnapshot.forEach(pilotoDoc => {
+            somarResultadoFinalRankingFirestore(
+                rankingMap,
+                pilotoDoc.data() || {},
+                etapaInfo
+            );
+        });
+
+        const classificacaoSnapshot = await resultadoRef.collection("classificacao").get();
+
+        classificacaoSnapshot.forEach(pilotoDoc => {
+            somarClassificacaoRankingFirestore(
+                rankingMap,
+                pilotoDoc.data() || {},
+                etapaInfo
+            );
+        });
+    }
+
+    return Array.from(rankingMap.values())
+        .sort((a, b) =>
+            b.pontos_total - a.pontos_total ||
+            b.pontos_posicao_corrida - a.pontos_posicao_corrida ||
+            a.driver_name.localeCompare(b.driver_name)
+        );
+}
+
+async function renderRankingFirestore() {
+    const select = document.getElementById("filtro_rank_firebase_camp");
+    const content = document.getElementById("rankingFirestoreContent");
+    const status = document.getElementById("rankingFirestoreStatus");
+
+    if (!select || !content) return;
+
+    const campeonatoDocId = select.value;
+    const campeonatoNome = select.options[select.selectedIndex]?.text || "";
+
+    if (!campeonatoDocId) {
+        content.innerHTML = "";
+        if (status) status.innerHTML = "Selecione um campeonato para carregar o ranking do Firestore.";
+        return;
+    }
+
+    try {
+        content.innerHTML = "";
+        if (status) status.innerHTML = `⏳ Carregando ranking de ${htmlEscape(campeonatoNome)} no Firestore...`;
+
+        const ranking = await buscarRankingFirestorePorCampeonato(campeonatoDocId);
+        RANKING_FIRESTORE_CACHE = ranking;
+
+        if (!ranking.length) {
+            content.innerHTML = "<p class='muted'>Nenhum resultado encontrado para este campeonato no Firestore.</p>";
+            if (status) status.innerHTML = "Nenhum dado encontrado.";
+            return;
+        }
+
+        let h = `
+            <table>
+                <tr>
+                    <th>Pos</th>
+                    <th>Piloto</th>
+                    <th>Pts</th>
+                </tr>
+        `;
+
+        ranking.forEach((p, i) => {
+            h += `
+                <tr onclick="toggleHistoricoLinhaFirestore(${i})" style="cursor:pointer;">
+                    <td>${i + 1}º</td>
+                    <td>${htmlEscape(p.driver_name || "-")}</td>
+                    <td>${p.pontos_total}</td>
+                </tr>
+                <tr id="hist_firestore_row_${i}" class="hist-detalhe" data-open="0" style="display:none;"></tr>
+            `;
+        });
+
+        h += "</table>";
+
+        content.innerHTML = h;
+
+        if (status) {
+            status.innerHTML = `
+                ✅ Ranking carregado do Firestore.
+                Pontuação total = posição da corrida + melhor volta da corrida + melhor volta da classificação.
+            `;
+        }
+    } catch (e) {
+        console.error(e);
+
+        content.innerHTML = "";
+        if (status) {
+            status.innerHTML = `❌ Erro ao carregar ranking do Firestore: ${htmlEscape(e.message || e)}`;
+        }
+    }
+}
+
+function toggleHistoricoLinhaFirestore(idx) {
+    const row = document.getElementById(`hist_firestore_row_${idx}`);
+    const item = RANKING_FIRESTORE_CACHE[idx];
+
+    if (!row || !item) return;
+
+    const aberto = row.dataset.open === "1";
+
+    document.querySelectorAll("tr.hist-detalhe").forEach(el => {
+        el.style.display = "none";
+        el.dataset.open = "0";
+    });
+
+    if (aberto) return;
+
+    const detalhes = item.etapas || [];
+
+    const tabelaDetalhes = detalhes.length ? `
+        <table style="margin-top:10px; font-size:12px;">
+            <tr>
+                <th>Tipo</th>
+                <th>Data</th>
+                <th>Etapa</th>
+                <th>Posição</th>
+                <th>Melhor tempo</th>
+                <th>Pts</th>
+                <th>Melhor tempo?</th>
+            </tr>
+            ${detalhes.map(d => `
+                <tr>
+                    <td>${htmlEscape(d.tipo || "-")}</td>
+                    <td>${htmlEscape(d.dataCorrida || "-")}</td>
+                    <td>${htmlEscape(d.etapa || "-")}</td>
+                    <td>${htmlEscape(d.posicao_final2 || "-")}</td>
+                    <td>${htmlEscape(d.melhor_tempo || "-")}</td>
+                    <td>${Number(d.pontos || 0)}</td>
+                    <td>${Number(d.melhor_tempo_ponto || 0)}</td>
+                </tr>
+            `).join("")}
+        </table>
+    ` : "<p class='muted'>Sem detalhes para exibir.</p>";
+
+    row.innerHTML = `
+        <td colspan="3">
+            <div style="padding:8px 4px; max-width:100%; overflow:hidden;">
+                <div class="hint">
+                    <strong>${htmlEscape(item.driver_name || "-")}</strong><br>
+                    Pontos posição corrida: ${item.pontos_posicao_corrida}<br>
+                    Melhor volta corrida: ${item.pontos_melhor_tempo_corrida}<br>
+                    Melhor volta classificação: ${item.pontos_melhor_tempo_classificacao}<br>
+                    Total: ${item.pontos_total}
+                </div>
+                <div style="max-width:100%; overflow-x:auto;">
+                    ${tabelaDetalhes}
+                </div>
+            </div>
+        </td>
+    `;
+
+    row.style.display = "table-row";
+    row.dataset.open = "1";
 }
 
 fetchData();
