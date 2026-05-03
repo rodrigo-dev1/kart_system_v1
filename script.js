@@ -2381,17 +2381,15 @@ function montarTabelaDetalhesRankingFirestore(detalhes) {
         <div style="width:100%; max-width:100%; overflow:hidden;">
             <table style="width:100%; table-layout:fixed; margin-top:10px; font-size:10.5px;">
                 <colgroup>
-                    <col style="width:20%;">
-                    <col style="width:17%;">
-                    <col style="width:10%;">
-                    <col style="width:13%;">
-                    <col style="width:18%;">
-                    <col style="width:10%;">
+                    <col style="width:24%;">
                     <col style="width:12%;">
+                    <col style="width:16%;">
+                    <col style="width:22%;">
+                    <col style="width:12%;">
+                    <col style="width:14%;">
                 </colgroup>
                 <tr>
                     <th style="white-space:normal; word-break:break-word;">Tipo</th>
-                    <th style="white-space:normal; word-break:break-word;">Data</th>
                     <th style="white-space:normal; word-break:break-word;">Et.</th>
                     <th style="white-space:normal; word-break:break-word;">Pos.</th>
                     <th style="white-space:normal; word-break:break-word;">Melhor tempo</th>
@@ -2401,7 +2399,6 @@ function montarTabelaDetalhesRankingFirestore(detalhes) {
                 ${detalhesOrdenados.map(d => `
                     <tr>
                         <td style="white-space:normal; word-break:break-word;">${htmlEscape(d.tipo || "-")}</td>
-                        <td style="white-space:normal; word-break:break-word;">${htmlEscape(d.dataCorrida || "-")}</td>
                         <td style="white-space:normal; word-break:break-word;">${htmlEscape(d.etapa || "-")}</td>
                         <td style="white-space:normal; word-break:break-word;">${htmlEscape(d.posicao_final2 || d.posicao_grafico || "-")}</td>
                         <td style="white-space:normal; word-break:break-word;">${htmlEscape(d.melhor_tempo || "-")}</td>
@@ -2616,4 +2613,3 @@ function toggleHistoricoLinhaFirestore(idx) {
 }
 
 fetchData();
-
