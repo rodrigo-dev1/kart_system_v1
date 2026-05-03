@@ -233,6 +233,20 @@ def get_position_and_points(df_filtrado: pd.DataFrame) -> pd.DataFrame:
     return df_filtrado
 
 
+def select_end(df: pd.DataFrame) -> pd.DataFrame:
+    colunas = [
+        "arquivo_origem",
+        "evento",
+        "driver_id",
+        "driver_name",
+        "diff",
+        "total_tempo",
+        "posicao_final2",
+        "pontos",
+    ]
+    return df[colunas]
+
+
 def set_html(element_id: str, html: str) -> None:
     element = document.getElementById(element_id)
     if element is not None:
@@ -296,8 +310,6 @@ def exibir_dataframe(df: pd.DataFrame, nome_arquivo: str, tipo_arquivo: str) -> 
         "driver_id",
         "driver_name",
         "posicao_final",
-        "posicao_final2",
-        "pontos",
         "kart_numero",
         "voltas",
         "total_tempo",
@@ -358,12 +370,11 @@ async def ler_arquivo_importacao(event) -> None:
 
         html = await get_text_from_file(file)
         df = carregar_tabela_corrida_html_texto(html, nome_arquivo, tipo_arquivo)
-        df = get_position_and_points(df)
         LAST_DF = df
 
         serializar_para_js(df, nome_arquivo, tipo_arquivo)
         exibir_dataframe(df, nome_arquivo, tipo_arquivo)
-        set_html("pyStatus", "✅ Leitura concluída. Confira o DataFrame e selecione os pilotos na tabela de importação abaixo.")
+        set_html("pyStatus", "✅ Leitura concluída. As checkboxes já foram liberadas abaixo. Marque os pilotos e clique em Salvar arquivo / gerar prévia para calcular pontos.")
 
     except Exception as exc:
         LAST_DF = None

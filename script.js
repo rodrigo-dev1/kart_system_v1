@@ -22,6 +22,7 @@ let IMPORTACAO_PREVIA = [];
 let IMPORTACAO_PYSCRIPT = [];
 let IMPORTACAO_PYSCRIPT_ARQUIVO = "";
 let IMPORTACAO_PYSCRIPT_TIPO = "";
+let IMPORTACAO_PREVIA_GERADA = false;
 const PONTOS_PADRAO = { 1: 20, 2: 17, 3: 15, 4: 13, 5: 11, 6: 9, 7: 7, 8: 5, 9: 3, 10: 1 };
 
 const MEUS_PILOTOS = [
@@ -114,11 +115,15 @@ function isArquivoTexto(file) {
 
 function limparEstadoImportacao() {
     IMPORTACAO_PREVIA = [];
+    IMPORTACAO_PREVIA_GERADA = false;
     document.getElementById("previewImportacao").innerHTML = "";
     document.getElementById("btnConfirmarImportacao").style.display = "none";
 }
 
 function onTipoArquivoImportChange() {
+    IMPORTACAO_PYSCRIPT = [];
+    IMPORTACAO_PYSCRIPT_ARQUIVO = "";
+    IMPORTACAO_PYSCRIPT_TIPO = "";
     const cfg = getTipoArquivoSelecionado();
     const label = document.getElementById("labelFileImportacao");
     const fileInput = document.getElementById("fileImportacaoUnico");
@@ -167,7 +172,6 @@ async function fazerBackupEProcessar() {
     if (!file) return alert("Selecione o arquivo que será importado!");
 
     status.innerHTML = `⏳ Salvando ${cfg.label} no Firebase...`;
-    limparEstadoImportacao();
 
     const dataUrl = await arquivoParaDataUrl(file);
     const conteudoRaw = isArquivoTexto(file) ? await file.text() : "";
@@ -213,13 +217,24 @@ async function fazerBackupEProcessar() {
         ? IMPORTACAO_PYSCRIPT
         : [];
 
-    if (registrosPyScript.length) {
-        montarImportacaoPreviaDoArquivo(registrosPyScript, campeonato, cfg.tipo, true);
-    } else {
-        analisarHTML(conteudoRaw, campeonato, dataCorrida, cfg.tipo, true);
+    if (!IMPORTACAO_PREVIA.length) {
+        if (registrosPyScript.length) {
+            montarImportacaoPreviaDoArquivo(registrosPyScript, campeonato, cfg.tipo, false, false);
+        } else {
+            analisarHTML(conteudoRaw, campeonato, dataCorrida, cfg.tipo, false);
+        }
     }
 
-    status.innerHTML = `✅ ${cfg.label} salvo como backup. Revise os pilotos abaixo e confirme somente os selecionados.`;
+    const selecionadosAntesDoCalculo = IMPORTACAO_PREVIA.filter(i => i.checked && !i.conflitoId);
+    if (!selecionadosAntesDoCalculo.length) {
+        status.innerHTML = `⚠️ ${cfg.label} salvo como backup. Marque ao menos um piloto no checkbox para gerar a prévia com pontuação.`;
+        recalcularPreviewImportacao(campeonato, true, false);
+        document.getElementById("btnConfirmarImportacao").style.display = "none";
+        return;
+    }
+
+    recalcularPreviewImportacao(campeonato, true, true);
+    status.innerHTML = `✅ ${cfg.label} salvo como backup. Prévia gerada com ${selecionadosAntesDoCalculo.length} piloto(s) selecionado(s).`;
     document.getElementById("btnConfirmarImportacao").style.display = "block";
 }
 
@@ -250,9 +265,12 @@ function receberImportacaoPyScript(payloadJson) {
 
         const campeonato = document.getElementById("imp_camp")?.value || "";
         const tipoAtual = document.getElementById("imp_tipo_arquivo")?.value || "";
-        if (campeonato && IMPORTACAO_PYSCRIPT.length && IMPORTACAO_PYSCRIPT_TIPO === tipoAtual) {
-            montarImportacaoPreviaDoArquivo(IMPORTACAO_PYSCRIPT, campeonato, IMPORTACAO_PYSCRIPT_TIPO, true);
-            document.getElementById("btnConfirmarImportacao").style.display = "block";
+        IMPORTACAO_PREVIA_GERADA = false;
+        if (IMPORTACAO_PYSCRIPT.length && IMPORTACAO_PYSCRIPT_TIPO === tipoAtual) {
+            montarImportacaoPreviaDoArquivo(IMPORTACAO_PYSCRIPT, campeonato, IMPORTACAO_PYSCRIPT_TIPO, true, false);
+            document.getElementById("btnConfirmarImportacao").style.display = "none";
+            const status = document.getElementById("statusImport");
+            if (status) status.innerHTML = "✅ Arquivo lido. Marque os pilotos e clique em Salvar arquivo / gerar prévia para calcular os pontos.";
         }
     } catch (e) {
         console.error("Falha ao receber dados do PyScript:", e);
@@ -275,6 +293,7 @@ function normalizarRegistroImportacao(item) {
         posicao_final: parseInt(posicaoFinal) || 0,
         posGeral: parseInt(posicaoFinal) || 9999,
         arquivo_origem: item.arquivo_origem || "",
+        evento: item.evento || "",
         kart_numero: item.kart_numero || "",
         classe: item.classe || "",
         melhor_tempo: item.melhor_tempo || "",
@@ -302,7 +321,7 @@ function pilotoEstaNoFocoOuCampeonato(item, campeonato) {
     return idOk || nomeOk || vinculado;
 }
 
-function montarImportacaoPreviaDoArquivo(registros, campeonato = "", tipoArquivo = "resultado_final", exibirHint = false) {
+function montarImportacaoPreviaDoArquivo(registros, campeonato = "", tipoArquivo = "resultado_final", exibirHint = false, calcularPontos = false) {
     const encontrados = (registros || [])
         .map(normalizarRegistroImportacao)
         .filter(item => item.driver_name && item.posicao_final)
@@ -314,22 +333,21 @@ function montarImportacaoPreviaDoArquivo(registros, campeonato = "", tipoArquivo
         const existente = porId[0] ||
             DB.pilotos.find(p => (getPilotoCampo(p, "nome") || "").toUpperCase() === (item.driver_name || "").toUpperCase());
         const vinculado = existente ? vinculosPiloto(existente).includes(campeonato) : false;
-        const marcadoPadrao = pilotoEstaNoFocoOuCampeonato(item, campeonato);
 
         return {
             ...item,
             tipoArquivo,
-            checked: !!marcadoPadrao,
+            checked: false,
             conflitoId,
             status: conflitoId ? "ID duplicado/conflito" : (existente ? (vinculado ? "Piloto vinculado ao campeonato" : "Piloto cadastrado sem vínculo") : "Será cadastrado automaticamente"),
         };
     });
 
-    recalcularPreviewImportacao(campeonato, exibirHint);
+    recalcularPreviewImportacao(campeonato, exibirHint, calcularPontos);
     return IMPORTACAO_PREVIA;
 }
 
-function analisarHTML(htmlText, campeonato = "", dataCorrida = "", tipoArquivo = "resultado_final", auto = false) {
+function analisarHTML(htmlText, campeonato = "", dataCorrida = "", tipoArquivo = "resultado_final", calcularPontos = false) {
     const doc = new DOMParser().parseFromString(htmlText, "text/html");
     const rows = doc.querySelectorAll("tr");
 
@@ -348,48 +366,63 @@ function analisarHTML(htmlText, campeonato = "", dataCorrida = "", tipoArquivo =
         encontrados.push({ driver_name: nome, driver_id: possivelId, posicao_final: pos });
     });
 
-    return montarImportacaoPreviaDoArquivo(encontrados, campeonato, tipoArquivo, auto);
+    return montarImportacaoPreviaDoArquivo(encontrados, campeonato, tipoArquivo, true, calcularPontos);
 }
 
-function recalcularPreviewImportacao(campeonato, exibirHint = false) {
+function recalcularPreviewImportacao(campeonato, exibirHint = false, calcularPontos = false) {
     IMPORTACAO_PREVIA = (IMPORTACAO_PREVIA.length ? IMPORTACAO_PREVIA : []).sort((a, b) => (a.posGeral || 9999) - (b.posGeral || 9999));
 
     const selecionadosOrdenados = IMPORTACAO_PREVIA
         .filter(i => i.checked && !i.conflitoId)
         .sort((a, b) => a.posGeral - b.posGeral);
 
-    const rankPorItem = new Map();
-    let ultimoPos = null;
-    let rankAtual = 0;
-    selecionadosOrdenados.forEach((item, idx) => {
-        if (item.posGeral !== ultimoPos) {
-            rankAtual = idx + 1;
-            ultimoPos = item.posGeral;
-        }
-        rankPorItem.set(item, rankAtual);
-    });
+    if (calcularPontos) {
+        const rankPorItem = new Map();
+        let ultimoPos = null;
+        let rankAtual = 0;
 
-    IMPORTACAO_PREVIA.forEach(item => {
-        item.posicao_final2 = item.checked && !item.conflitoId ? (rankPorItem.get(item) || 0) : 0;
-        item.posCampeonato = item.posicao_final2;
-        item.pontos = item.posicao_final2 ? (PONTOS_PADRAO[item.posicao_final2] || 0) : 0;
-        item.origemPontuacao = item.posicao_final2 ? "Pontuação padrão da importação" : "-";
-    });
+        selecionadosOrdenados.forEach((item, idx) => {
+            if (item.posGeral !== ultimoPos) {
+                rankAtual = idx + 1;
+                ultimoPos = item.posGeral;
+            }
+            rankPorItem.set(item, rankAtual);
+        });
+
+        IMPORTACAO_PREVIA.forEach(item => {
+            item.posicao_final2 = item.checked && !item.conflitoId ? (rankPorItem.get(item) || 0) : 0;
+            item.posCampeonato = item.posicao_final2;
+            item.pontos = item.posicao_final2 ? (PONTOS_PADRAO[item.posicao_final2] || 0) : 0;
+            item.origemPontuacao = item.posicao_final2 ? "Pontuação padrão da importação" : "-";
+        });
+        IMPORTACAO_PREVIA_GERADA = true;
+    } else {
+        IMPORTACAO_PREVIA.forEach(item => {
+            item.posicao_final2 = 0;
+            item.posCampeonato = 0;
+            item.pontos = 0;
+            item.origemPontuacao = "Aguardando cálculo";
+        });
+        IMPORTACAO_PREVIA_GERADA = false;
+    }
 
     const cfg = getTipoArquivoSelecionado() || TIPOS_ARQUIVO.find(t => t.tipo === IMPORTACAO_PREVIA[0]?.tipoArquivo);
     const titulo = cfg?.tipo === "classificacao" ? "Classificação" : "Resultado Final";
-    let h = `<h3>Prévia de Importação — ${htmlEscape(titulo)}</h3>`;
+    const tituloEtapa = IMPORTACAO_PREVIA_GERADA ? "Prévia de Importação" : "Seleção de Pilotos";
+    let h = `<h3>${tituloEtapa} — ${htmlEscape(titulo)}</h3>`;
     if (!IMPORTACAO_PREVIA.length) h += "<p class='muted'>Nenhum piloto identificado no arquivo.</p>";
     h += `<div style="max-width:100%; overflow:auto;"><table><tr><th>Importar?</th><th>driver_id</th><th>driver_name</th><th>Pos. geral</th><th>Pos. importação</th><th>Pontos</th><th>Kart</th><th>Melhor tempo</th><th>Voltas</th><th>Status</th></tr>`;
     IMPORTACAO_PREVIA.forEach((i, idx) => {
         const disabled = i.conflitoId ? "disabled" : "";
+        const posicaoCalculada = IMPORTACAO_PREVIA_GERADA && i.posicao_final2 ? i.posicao_final2 : "-";
+        const pontosCalculados = IMPORTACAO_PREVIA_GERADA && i.posicao_final2 ? i.pontos : "-";
         h += `<tr>` +
-            `<td><input type="checkbox" id="imp_chk_${idx}" ${i.checked ? "checked" : ""} ${disabled} onchange="toggleSelecionadoImport(${idx}, '${htmlEscape(campeonato)}')"></td>` +
+            `<td><input type="checkbox" id="imp_chk_${idx}" ${i.checked ? "checked" : ""} ${disabled} onchange="toggleSelecionadoImport(${idx})"></td>` +
             `<td>${htmlEscape(i.driver_id || "-")}</td>` +
             `<td>${htmlEscape(i.driver_name || "-")}</td>` +
             `<td>${htmlEscape(i.posicao_final || i.pos || "-")}</td>` +
-            `<td>${i.posicao_final2 || "-"}</td>` +
-            `<td>${i.pontos || 0}</td>` +
+            `<td>${posicaoCalculada}</td>` +
+            `<td>${pontosCalculados}</td>` +
             `<td>${htmlEscape(i.kart_numero || "-")}</td>` +
             `<td>${htmlEscape(i.melhor_tempo || "-")}</td>` +
             `<td>${htmlEscape(i.voltas || "-")}</td>` +
@@ -399,44 +432,35 @@ function recalcularPreviewImportacao(campeonato, exibirHint = false) {
     h += "</table></div>";
 
     if (exibirHint) {
-        h += `<p class='hint'>A pontuação é recalculada somente com os pilotos marcados, equivalente ao filtro por driver_id antes do get_position_and_points(). Selecionados: ${selecionadosOrdenados.length}</p>`;
+        if (IMPORTACAO_PREVIA_GERADA) {
+            h += `<p class='hint'>Pontuação recalculada somente com os pilotos marcados, equivalente a filter_piloto() + get_position_and_points(). Selecionados: ${selecionadosOrdenados.length}</p>`;
+        } else {
+            h += `<p class='hint'>Marque os pilotos que serão importados. Os campos Pos. importação e Pontos só serão calculados após clicar em Salvar arquivo / gerar prévia.</p>`;
+        }
     }
     document.getElementById("previewImportacao").innerHTML = h;
 }
-
-function toggleSelecionadoImport(idx, campeonato) {
+function toggleSelecionadoImport(idx) {
+    const campeonato = document.getElementById("imp_camp")?.value || "";
     IMPORTACAO_PREVIA[idx].checked = !!document.getElementById(`imp_chk_${idx}`)?.checked;
-    recalcularPreviewImportacao(campeonato, true);
+    recalcularPreviewImportacao(campeonato, true, IMPORTACAO_PREVIA_GERADA);
+    document.getElementById("btnConfirmarImportacao").style.display = IMPORTACAO_PREVIA_GERADA ? "block" : "none";
 }
 
-function montarPayloadFirebaseImportacao(item, contexto) {
+function selectEndFirebasePayload(item, contexto) {
+    // Equivalente à DEF Python:
+    // df[["arquivo_origem", "evento", "driver_id", "driver_name", "diff", "total_tempo", "posicao_final2", "pontos"]]
     return {
-        campeonato: contexto.campeonato,
-        etapa: Number(contexto.etapa),
-        dataCorrida: contexto.data,
-        tipoArquivo: contexto.tipoArquivo,
-        arquivoOrigem: item.arquivo_origem || contexto.nomeArquivo || "",
+        arquivo_origem: item.arquivo_origem || contexto.nomeArquivo || "",
+        evento: item.evento || "",
         driver_id: item.driver_id || "",
         driver_name: item.driver_name || "",
-        kart_numero: item.kart_numero || "",
-        posicao_final: Number(item.posicao_final || item.pos || 0),
+        diff: item.diff || "",
+        total_tempo: item.total_tempo || "",
         posicao_final2: Number(item.posicao_final2 || 0),
         pontos: Number(item.pontos || 0),
-        classe: item.classe || "",
-        voltas: item.voltas === "" ? null : Number(item.voltas),
-        total_tempo: item.total_tempo || "",
-        total_tempo_segundos: item.total_tempo_segundos === "" ? null : Number(item.total_tempo_segundos),
-        melhor_tempo: item.melhor_tempo || "",
-        melhor_tempo_segundos: item.melhor_tempo_segundos === "" ? null : Number(item.melhor_tempo_segundos),
-        diff: item.diff || "",
-        espaco: item.espaco || "",
-        comentarios: item.comentarios || "",
-        piloto_original: item.piloto_original || "",
-        dataImportacao: new Date().toLocaleString("pt-BR"),
-        dataImportacaoISO: new Date().toISOString()
     };
 }
-
 async function confirmarImportacao() {
     const campeonato = document.getElementById("imp_camp").value;
     const etapa = document.getElementById("imp_etapa").value;
@@ -447,7 +471,7 @@ async function confirmarImportacao() {
 
     if (!cfg || !cfg.usaPreview) return alert("Selecione Resultado final ou Classificação para importar pilotos.");
 
-    recalcularPreviewImportacao(campeonato, true);
+    recalcularPreviewImportacao(campeonato, true, true);
     const selecionados = IMPORTACAO_PREVIA.filter(i => i.checked && !i.conflitoId).sort((a, b) => a.posGeral - b.posGeral);
     if (!selecionados.length) return alert("Selecione ao menos um piloto.");
 
@@ -467,11 +491,7 @@ async function confirmarImportacao() {
     selecionados.forEach((p, idx) => {
         const chavePiloto = p.driver_id || normalizarChave(p.driver_name || `piloto_${idx + 1}`);
         const itemId = `${importId}_${normalizarChave(chavePiloto)}`;
-        updates[`${destino}/${itemId}`] = {
-            idImportacao: importId,
-            ordemImportacao: idx + 1,
-            ...montarPayloadFirebaseImportacao(p, contexto)
-        };
+        updates[`${destino}/${itemId}`] = selectEndFirebasePayload(p, contexto);
     });
 
     updates[`importacoes/${importId}`] = {
