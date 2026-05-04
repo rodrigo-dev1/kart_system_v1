@@ -1370,9 +1370,14 @@ function renderArquivosDoDia(dia) {
 
 function popularPilotosFiltroDia(dia, tipoAba) {
     const camp = document.getElementById(`filtroCampDia_${tipoAba}`)?.value || "";
+    const etapaSel = document.getElementById(`filtroEtapaDia_${tipoAba}`)?.value || "";
     const sel = document.getElementById(`filtroPilotosDia_${tipoAba}`);
     if (!sel) return;
-    const itens = HISTORICO_CACHE.filter(item => extrairDataItem(item) === dia && (!camp || item.campeonato === camp));
+    const itens = HISTORICO_CACHE.filter(item =>
+        extrairDataItem(item) === dia &&
+        (!camp || item.campeonato === camp) &&
+        (!etapaSel || String(item.etapa || "") === String(etapaSel))
+    );
     const pilotos = [...new Set(itens.flatMap(i => (i.pilotosImportadosResumo || []).map(p => p.driver_name).filter(Boolean)))].sort();
     sel.innerHTML = pilotos.map(p => `<option value="${htmlEscape(p)}">${htmlEscape(p)}</option>`).join("");
 }
@@ -1439,21 +1444,42 @@ async function renderResultadoDia(dia) {
     const selectAnterior = document.getElementById(`filtroCampDia_${tipoAba}`);
     const campAtual = selectAnterior?.value || camps[0] || "";
 
-    alvo.innerHTML = `<div class="consulta-subcard"><label class="file-label">Campeonato</label><select id="filtroCampDia_${tipoAba}" onchange="renderResultadoDia('${dia}')"><option value="">Selecione</option>${camps.map(c => `<option value="${htmlEscape(c)}"${c === campAtual ? " selected" : ""}>${htmlEscape(c)}</option>`).join("")}</select><label class="file-label">Pilotos (multi)</label><select id="filtroPilotosDia_${tipoAba}" multiple onchange="renderResultadoDia('${dia}')"></select><div id="consultaTabelaDia"></div></div>`;
+    const camp = document.getElementById(`filtroCampDia_${tipoAba}`)?.value || "";
+    const campId = normalizarDocId(camp);
+    let resultados = { docs: [] };
+
+    if (camp) {
+        resultados = await firestore.collection(COLLECTION_CAMPEONATOS).doc(campId).collection("resultado_final").where("dataCorrida", "==", dia).get();
+    }
+
+    const etapasDisponiveis = [...new Set((resultados.docs || []).map(r => String(r.data()?.etapa || "").trim()).filter(Boolean))]
+        .sort((a, b) => Number(a) - Number(b));
+    const selectEtapaAnterior = document.getElementById(`filtroEtapaDia_${tipoAba}`);
+    const etapaAtual = etapasDisponiveis.includes(selectEtapaAnterior?.value || "")
+        ? selectEtapaAnterior.value
+        : (etapasDisponiveis.length === 1 ? etapasDisponiveis[0] : "");
+
+    alvo.innerHTML = `<div class="consulta-subcard"><label class="file-label">Campeonato</label><select id="filtroCampDia_${tipoAba}" onchange="renderResultadoDia('${dia}')"><option value="">Selecione</option>${camps.map(c => `<option value="${htmlEscape(c)}"${c === campAtual ? " selected" : ""}>${htmlEscape(c)}</option>`).join("")}</select>${camp ? `<label class="file-label">Etapa</label><select id="filtroEtapaDia_${tipoAba}" onchange="renderResultadoDia('${dia}')"><option value="">${etapasDisponiveis.length > 1 ? "Selecione a etapa" : "Etapa"}</option>${etapasDisponiveis.map(e => `<option value="${htmlEscape(e)}"${e === etapaAtual ? " selected" : ""}>${htmlEscape(e)}</option>`).join("")}</select>` : ""}<label class="file-label">Pilotos (multi)</label><select id="filtroPilotosDia_${tipoAba}" multiple onchange="renderResultadoDia('${dia}')"></select><div id="consultaTabelaDia"></div></div>`;
     popularPilotosFiltroDia(dia, tipoAba);
 
-    const camp = document.getElementById(`filtroCampDia_${tipoAba}`)?.value || "";
-    if (!camp) {
+    const campSelecionado = document.getElementById(`filtroCampDia_${tipoAba}`)?.value || "";
+    const etapaSelecionada = document.getElementById(`filtroEtapaDia_${tipoAba}`)?.value || "";
+    if (!campSelecionado) {
         document.getElementById("consultaTabelaDia").innerHTML = "<p class='muted'>Selecione um campeonato para visualizar os dados.</p>";
+        return;
+    }
+    if (etapasDisponiveis.length > 1 && !etapaSelecionada) {
+        document.getElementById("consultaTabelaDia").innerHTML = "<p class='muted'>Selecione a etapa para visualizar os dados sem duplicidade.</p>";
         return;
     }
 
     const pilotosSel = Array.from(document.getElementById(`filtroPilotosDia_${tipoAba}`)?.selectedOptions || []).map(o => o.value);
-    const campId = normalizarDocId(camp);
-    const resultados = await firestore.collection(COLLECTION_CAMPEONATOS).doc(campId).collection("resultado_final").where("dataCorrida", "==", dia).get();
+    const docsFiltrados = etapaSelecionada
+        ? resultados.docs.filter(r => String(r.data()?.etapa || "") === String(etapaSelecionada))
+        : resultados.docs;
     const corrida = [];
     const classificacao = [];
-    for (const r of resultados.docs) {
+    for (const r of docsFiltrados) {
         const [s1, s2] = await Promise.all([r.ref.collection("pilotos_resultado").get(), r.ref.collection("classificacao").get()]);
         s1.forEach(d => corrida.push(d.data()));
         s2.forEach(d => classificacao.push(d.data()));
