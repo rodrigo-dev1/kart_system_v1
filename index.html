@@ -32,7 +32,7 @@
         .btn-icon { width: 34px; height: 34px; margin: 0; padding: 0; display: inline-flex; align-items: center; justify-content: center; background: #2b3240; border: 1px solid #3a4252; border-radius: 8px; font-size: 16px; }
         .btn-icon:hover { filter: brightness(1.2); }
         .actions { display: flex; gap: 8px; }
-        .tabs { display: flex; gap: 8px; margin-bottom: 12px; }
+        .tabs { display: flex; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; }
         .tab-btn { background: #252a34; border: 1px solid #3a4252; padding: 10px 12px; width: auto; margin: 0; }
         .tab-btn.active-tab { background: var(--red); border-color: var(--red); }
         .feedback { margin-top: 10px; font-size: 13px; color: #9ad99a; }
@@ -45,12 +45,14 @@
         .py-preview-card { background: #151a22; border: 1px solid #394150; border-radius: 12px; padding: 12px; margin-top: 14px; }
         .py-status { color: #ffeb3b; font-size: 13px; margin: 8px 0; }
         .py-table-wrapper { max-height: 360px; overflow: auto; border-radius: 10px; border: 1px solid #333; }
-        .pyscript-table { min-width: 900px; font-size: 12px; }
+        .pyscript-table { width: 100%; min-width: 0; font-size: 11px; table-layout: fixed; }
         .pyscript-table th, .pyscript-table td { white-space: nowrap; padding: 8px; }
         .py-summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 8px; margin: 8px 0 12px 0; }
         .py-summary div { background: #252a34; border-radius: 8px; padding: 8px; font-size: 12px; }
         .inline-actions { display: flex; gap: 8px; flex-wrap: wrap; }
         .inline-actions button { width: auto; padding: 10px 12px; margin-top: 8px; }
+        .table-fit { width: 100%; overflow-x: hidden; }
+        .consulta-subcard { background: #151a22; border: 1px solid #394150; border-radius: 12px; padding: 12px; margin-top: 12px; }
     </style>
 </head>
 <body>

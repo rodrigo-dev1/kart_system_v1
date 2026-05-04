@@ -214,6 +214,16 @@ function getPilotoCampo(p, ...keys) {
     return achado ? p[achado] : "";
 }
 
+function nomePilotoCurto(driverName = "", driverId = "") {
+    const piloto = DB.pilotos.find(p => String(p.id_piloto || p.driver_id || "").trim() === String(driverId || "").trim())
+        || DB.pilotos.find(p => String(p.nome || p.driver_name || "").trim().toUpperCase() === String(driverName || "").trim().toUpperCase());
+
+    const apelido = String(piloto?.apelido || "").trim();
+    if (apelido) return apelido;
+    const nome = String(driverName || "").trim();
+    return nome ? nome.split(/\s+/)[0] : "-";
+}
+
 function vinculosPiloto(p) {
     const bruto = getPilotoCampo(p, "campeonatos", "vinculos");
 
@@ -1294,16 +1304,19 @@ function renderArquivosDoDia(dia) {
         );
 
     let html = `<h3>📅 Arquivos de ${formatarDataBR(dia)}</h3>`;
-    const camps = [...new Set(itens.map(i => i.campeonato).filter(Boolean))];
-    html += `<label class="file-label">Campeonato</label><select id="filtroCampDia" onchange="renderResultadoDia('${dia}')"><option value="">Selecione</option>${camps.map(c => `<option value="${htmlEscape(c)}">${htmlEscape(c)}</option>`).join("")}</select>`;
-    html += `<label class="file-label">Pilotos (multi)</label><select id="filtroPilotosDia" multiple onchange="renderResultadoDia('${dia}')"></select>`;
+    html += `<div class="tabs">
+        <button id="tabConsultaArquivos" class="tab-btn active-tab" onclick="trocarAbaConsulta('arquivos','${dia}')">Arquivos</button>
+        <button id="tabConsultaCorrida" class="tab-btn" onclick="trocarAbaConsulta('corrida','${dia}')">Corrida</button>
+        <button id="tabConsultaClassificacao" class="tab-btn" onclick="trocarAbaConsulta('classificacao','${dia}')">Classificação</button>
+    </div>`;
+    html += `<div id="consultaAbaArquivos"></div><div id="consultaAbaResultado" style="display:none;"></div>`;
 
     itens.forEach(item => {
         const aviso = item.arquivoCompletoSalvoNoFirestore === false
             ? "<br><small class='muted'>Arquivo bruto grande: salvo como metadados.</small>"
             : "";
 
-        html += `<div class="arquivo-card">
+        html += `<div class="arquivo-card consulta-arquivo-item">
             <div>
                 <strong>${htmlEscape(item.tipoLabel || item.tipoArquivo || "Arquivo")}</strong><br>
                 <small>${htmlEscape(item.campeonato || "Sem campeonato")} • ${htmlEscape(item.nomeArquivo || "-")}</small>
@@ -1317,13 +1330,18 @@ function renderArquivosDoDia(dia) {
     });
 
     detalhe.innerHTML = html;
-    popularPilotosFiltroDia(dia);
-    renderResultadoDia(dia);
+    const arquivosContainer = document.getElementById("consultaAbaArquivos");
+    if (arquivosContainer) {
+        arquivosContainer.innerHTML = Array.from(document.querySelectorAll(".consulta-arquivo-item")).map(el => el.outerHTML).join("");
+        document.querySelectorAll(".consulta-arquivo-item").forEach(el => el.remove());
+    }
+    const resultado = document.getElementById("resultadoDoDia");
+    if (resultado) resultado.innerHTML = "";
 }
 
-function popularPilotosFiltroDia(dia) {
-    const camp = document.getElementById("filtroCampDia")?.value || "";
-    const sel = document.getElementById("filtroPilotosDia");
+function popularPilotosFiltroDia(dia, tipoAba) {
+    const camp = document.getElementById(`filtroCampDia_${tipoAba}`)?.value || "";
+    const sel = document.getElementById(`filtroPilotosDia_${tipoAba}`);
     if (!sel) return;
     const itens = HISTORICO_CACHE.filter(item => extrairDataItem(item) === dia && (!camp || item.campeonato === camp));
     const pilotos = [...new Set(itens.flatMap(i => (i.pilotosImportadosResumo || []).map(p => p.driver_name).filter(Boolean)))].sort();
@@ -1384,14 +1402,15 @@ async function excluirImportacao(key) {
 }
 
 async function renderResultadoDia(dia) {
-    popularPilotosFiltroDia(dia);
-    const camp = document.getElementById("filtroCampDia")?.value || "";
-    const alvo = document.getElementById("resultadoDoDia");
+    const tipoAba = window.CONSULTA_ABA_ATUAL || "corrida";
+    popularPilotosFiltroDia(dia, tipoAba);
+    const camp = document.getElementById(`filtroCampDia_${tipoAba}`)?.value || "";
+    const alvo = document.getElementById("consultaAbaResultado");
     if (!alvo || !camp) {
         if (alvo) alvo.innerHTML = "";
         return;
     }
-    const pilotosSel = Array.from(document.getElementById("filtroPilotosDia")?.selectedOptions || []).map(o => o.value);
+    const pilotosSel = Array.from(document.getElementById(`filtroPilotosDia_${tipoAba}`)?.selectedOptions || []).map(o => o.value);
     const campId = normalizarDocId(camp);
     const resultados = await firestore.collection(COLLECTION_CAMPEONATOS).doc(campId).collection("resultado_final").where("dataCorrida", "==", dia).get();
     const corrida = [];
@@ -1402,16 +1421,35 @@ async function renderResultadoDia(dia) {
         s2.forEach(d => classificacao.push(d.data()));
     }
     const filtra = rows => rows.filter(x => !pilotosSel.length || pilotosSel.includes(x.driver_name));
-    const cols = [["driver_name", "Piloto"], ["total_tempo", "T.Total"], ["total_tempo_segundos", "T.s"], ["sfspd_melhor_vlt", "S1"], ["s2_melhor_vlt", "S2"], ["s3_melhor_vlt", "S3"]];
-    const tabela = rows => `<table class='pyscript-table'><tr>${cols.map(c => `<th>${c[1]}</th>`).join("")}</tr>${rows.map(r => `<tr>${cols.map(c => `<td>${htmlEscape(r[c[0]] ?? "-")}</td>`).join("")}</tr>`).join("")}</table>`;
-    alvo.innerHTML = `<div class='tabs'><button class='tab-btn' onclick="mostrarAbaResultado('arq')">Arquivos</button><button class='tab-btn active-tab' onclick="mostrarAbaResultado('corr')">Corrida</button><button class='tab-btn' onclick="mostrarAbaResultado('cla')">Classificação</button></div><div id='aba-arq' style='display:none'>Conteúdo disponível na lista acima.</div><div id='aba-corr'>${tabela(filtra(corrida))}</div><div id='aba-cla' style='display:none'>${tabela(filtra(classificacao))}</div>`;
+    const cols = [["posicao_geral_arquivo", "Pos"], ["driver_name", "Piloto"], ["total_tempo", "T.Total"], ["total_tempo_segundos", "T.s"], ["sfspd_melhor_vlt", "S1"], ["s2_melhor_vlt", "S2"], ["s3_melhor_vlt", "S3"]];
+    const baseRows = tipoAba === "classificacao" ? classificacao : corrida;
+    const tabela = rows => `<div class='table-fit'><table class='pyscript-table'><tr>${cols.map(c => `<th>${c[1]}</th>`).join("")}</tr>${rows.map(r => `<tr>${cols.map(c => {
+        if (c[0] === "driver_name") return `<td>${htmlEscape(nomePilotoCurto(r.driver_name, r.driver_id || r.id_piloto))}</td>`;
+        return `<td>${htmlEscape(r[c[0]] ?? "-")}</td>`;
+    }).join("")}</tr>`).join("")}</table></div>`;
+    const camps = [...new Set(HISTORICO_CACHE.filter(item => extrairDataItem(item) === dia).map(i => i.campeonato).filter(Boolean))];
+    alvo.innerHTML = `<div class="consulta-subcard"><label class="file-label">Campeonato</label><select id="filtroCampDia_${tipoAba}" onchange="renderResultadoDia('${dia}')"><option value="">Selecione</option>${camps.map(c => `<option value="${htmlEscape(c)}">${htmlEscape(c)}</option>`).join("")}</select><label class="file-label">Pilotos (multi)</label><select id="filtroPilotosDia_${tipoAba}" multiple onchange="renderResultadoDia('${dia}')"></select>${tabela(filtra(baseRows))}</div>`;
+    popularPilotosFiltroDia(dia, tipoAba);
 }
 
-function mostrarAbaResultado(aba) {
-    ["arq", "corr", "cla"].forEach(k => {
-        const el = document.getElementById(`aba-${k}`);
-        if (el) el.style.display = k === aba ? "block" : "none";
-    });
+function trocarAbaConsulta(aba, dia) {
+    window.CONSULTA_ABA_ATUAL = aba;
+    const tabArquivos = document.getElementById("tabConsultaArquivos");
+    const tabCorrida = document.getElementById("tabConsultaCorrida");
+    const tabClassificacao = document.getElementById("tabConsultaClassificacao");
+    if (tabArquivos) tabArquivos.classList.toggle("active-tab", aba === "arquivos");
+    if (tabCorrida) tabCorrida.classList.toggle("active-tab", aba === "corrida");
+    if (tabClassificacao) tabClassificacao.classList.toggle("active-tab", aba === "classificacao");
+    const abaArquivos = document.getElementById("consultaAbaArquivos");
+    const abaResultado = document.getElementById("consultaAbaResultado");
+    if (aba === "arquivos") {
+        if (abaArquivos) abaArquivos.style.display = "block";
+        if (abaResultado) abaResultado.style.display = "none";
+        return;
+    }
+    if (abaArquivos) abaArquivos.style.display = "none";
+    if (abaResultado) abaResultado.style.display = "block";
+    renderResultadoDia(dia);
 }
 
 function abrirGestao() {
