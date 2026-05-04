@@ -634,6 +634,10 @@ function selectEndFirebasePayload(item, contexto) {
         driver_name: item.driver_name || "",
         diff: item.diff || "",
         total_tempo: item.total_tempo || "",
+        s1_melhor_vlt: item.s1_melhor_vlt ?? null,
+        s2_melhor_vlt: item.s2_melhor_vlt ?? null,
+        s3_melhor_vlt: item.s3_melhor_vlt ?? null,
+        sfspd_melhor_vlt: item.sfspd_melhor_vlt ?? null,
         posicao_final2: Number(item.posicao_final2 || 0),
         pontos: Number(item.pontos || 0),
         melhor_tempo_ponto: Number(item.melhor_tempo_ponto || 0)
@@ -692,6 +696,10 @@ async function salvarSelecionadosNoFirestore({ campeonato, etapa, dataCorrida, c
             voltas: p.voltas ?? null,
             classe: p.classe || "",
             comentarios: p.comentarios || "",
+            s1_melhor_vlt: p.s1_melhor_vlt ?? null,
+            s2_melhor_vlt: p.s2_melhor_vlt ?? null,
+            s3_melhor_vlt: p.s3_melhor_vlt ?? null,
+            sfspd_melhor_vlt: p.sfspd_melhor_vlt ?? null,
             caminhoBackup: backupId ? `${COLLECTION_BACKUPS}/${backupId}` : "",
             criadoEmISO: agoraISO,
             atualizadoEmISO: agoraISO
@@ -881,6 +889,10 @@ function normalizarRegistroImportacao(item) {
         total_tempo_segundos: item.total_tempo_segundos ?? "",
         diff: item.diff || "",
         espaco: item.espaco || "",
+        s1_melhor_vlt: item.s1_melhor_vlt ?? "",
+        s2_melhor_vlt: item.s2_melhor_vlt ?? "",
+        s3_melhor_vlt: item.s3_melhor_vlt ?? "",
+        sfspd_melhor_vlt: item.sfspd_melhor_vlt ?? "",
         voltas: item.voltas ?? "",
         comentarios: item.comentarios || "",
         piloto_original: item.piloto_original || ""
