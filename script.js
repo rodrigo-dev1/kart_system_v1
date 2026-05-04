@@ -1444,15 +1444,13 @@ async function renderResultadoDia(dia) {
     const selectAnterior = document.getElementById(`filtroCampDia_${tipoAba}`);
     const campAtual = selectAnterior?.value || camps[0] || "";
 
-    const camp = document.getElementById(`filtroCampDia_${tipoAba}`)?.value || "";
-    const campId = normalizarDocId(camp);
-    let resultados = { docs: [] };
-
-    if (camp) {
-        resultados = await firestore.collection(COLLECTION_CAMPEONATOS).doc(campId).collection("resultado_final").where("dataCorrida", "==", dia).get();
-    }
-
-    const etapasDisponiveis = [...new Set((resultados.docs || []).map(r => String(r.data()?.etapa || "").trim()).filter(Boolean))]
+    const camp = campAtual;
+    const etapasDisponiveis = [...new Set(
+        HISTORICO_CACHE
+            .filter(item => extrairDataItem(item) === dia && item.campeonato === camp)
+            .map(item => String(item.etapa || "").trim())
+            .filter(Boolean)
+    )]
         .sort((a, b) => Number(a) - Number(b));
     const selectEtapaAnterior = document.getElementById(`filtroEtapaDia_${tipoAba}`);
     const etapaAtual = etapasDisponiveis.includes(selectEtapaAnterior?.value || "")
@@ -1474,6 +1472,8 @@ async function renderResultadoDia(dia) {
     }
 
     const pilotosSel = Array.from(document.getElementById(`filtroPilotosDia_${tipoAba}`)?.selectedOptions || []).map(o => o.value);
+    const campId = normalizarDocId(campSelecionado);
+    const resultados = await firestore.collection(COLLECTION_CAMPEONATOS).doc(campId).collection("resultado_final").where("dataCorrida", "==", dia).get();
     const docsFiltrados = etapaSelecionada
         ? resultados.docs.filter(r => String(r.data()?.etapa || "") === String(etapaSelecionada))
         : resultados.docs;
