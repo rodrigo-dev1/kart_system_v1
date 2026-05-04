@@ -1447,16 +1447,49 @@ async function renderResultadoDia(dia) {
         s2.forEach(d => classificacao.push(d.data()));
     }
     const filtra = rows => rows.filter(x => !pilotosSel.length || pilotosSel.includes(x.driver_name));
-    const cols = [["posicao_geral_arquivo", "Pos"], ["driver_name", "Piloto"], ["total_tempo", "T.Total"], ["sfspd_melhor_vlt", "S1"], ["s2_melhor_vlt", "S2"], ["s3_melhor_vlt", "S3"]];
+    const colsResumo = tipoAba === "classificacao"
+        ? [["posicao_geral_arquivo", "Pos"], ["driver_name", "Piloto"], ["melhor_tempo", "Melhor volta"]]
+        : [["posicao_geral_arquivo", "Pos"], ["driver_name", "Piloto"], ["total_tempo", "T.Total"]];
+    const detalhesCorrida = [["melhor_tempo", "Melhor volta"], ["sfspd_melhor_vlt", "S1"], ["s2_melhor_vlt", "S2"], ["s3_melhor_vlt", "S3"], ["kart_number", "Kart"], ["best_lap", "Volta"]];
+    const detalhesClassificacao = [["total_tempo", "T.Total"], ["sfspd_melhor_vlt", "S1"], ["s2_melhor_vlt", "S2"], ["s3_melhor_vlt", "S3"], ["kart_number", "Kart"], ["best_lap", "Volta"], ["pontos", "Pts"], ["melhor_tempo_ponto", "Bônus melhor volta"]];
     const baseRows = (tipoAba === "classificacao" ? classificacao : corrida).slice();
     baseRows.sort((a, b) => Number(a.posicao_geral_arquivo || 9999) - Number(b.posicao_geral_arquivo || 9999));
-    const tabela = rows => `<div class='table-fit'><table class='pyscript-table'><tr>${cols.map(c => `<th>${c[1]}</th>`).join("")}</tr>${rows.map(r => `<tr>${cols.map(c => {
-        if (c[0] === "driver_name") return `<td>${htmlEscape(nomePilotoCurto(r.driver_name, r.driver_id || r.id_piloto))}</td>`;
-        return `<td>${htmlEscape(r[c[0]] ?? "-")}</td>`;
-    }).join("")}</tr>`).join("")}</table></div>`;
+
+    const montarResumoCelula = (r, campo) => {
+        if (campo === "driver_name") return htmlEscape(nomePilotoCurto(r.driver_name, r.driver_id || r.id_piloto));
+        return htmlEscape(r[campo] ?? "-");
+    };
+
+    const montarDetalhesPiloto = (r, idx) => {
+        const detalhes = tipoAba === "classificacao" ? detalhesClassificacao : detalhesCorrida;
+        const linhas = detalhes
+            .map(([campo, label]) => {
+                const valor = r[campo];
+                if (valor === undefined || valor === null || valor === "") return "";
+                return `<tr><td style="color:#aaa;">${htmlEscape(label)}</td><td>${htmlEscape(valor)}</td></tr>`;
+            })
+            .filter(Boolean)
+            .join("");
+
+        const conteudo = linhas || '<tr><td colspan="2" class="muted">Sem detalhes adicionais.</td></tr>';
+        return `<tr id="consulta_row_det_${idx}" data-open="0" style="display:none; background:#151a22;"><td colspan="${colsResumo.length}"><table class='pyscript-table' style='margin:0; font-size:12px;'><tbody>${conteudo}</tbody></table></td></tr>`;
+    };
+
+    const tabela = rows => `<div class='table-fit'><table class='pyscript-table'><tr>${colsResumo.map(c => `<th>${c[1]}</th>`).join("")}</tr>${rows.map((r, idx) => `
+        <tr style="cursor:pointer;" onclick="toggleDetalheConsulta(${idx})">${colsResumo.map(c => `<td>${montarResumoCelula(r, c[0])}</td>`).join("")}</tr>
+        ${montarDetalhesPiloto(r, idx)}
+    `).join("")}</table></div>`;
     document.getElementById("consultaTabelaDia").innerHTML = baseRows.length
         ? tabela(filtra(baseRows))
         : "<p class='muted'>Sem dados para este dia/campeonato.</p>";
+}
+
+function toggleDetalheConsulta(idx) {
+    const detalhe = document.getElementById(`consulta_row_det_${idx}`);
+    if (!detalhe) return;
+    const aberto = detalhe.getAttribute("data-open") === "1";
+    detalhe.style.display = aberto ? "none" : "table-row";
+    detalhe.setAttribute("data-open", aberto ? "0" : "1");
 }
 
 function trocarAbaConsulta(aba, dia) {
