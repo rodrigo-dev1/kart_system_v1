@@ -1325,20 +1325,12 @@ function renderArquivosDoDia(dia) {
             (ordem[a.tipoArquivo] || 9) - (ordem[b.tipoArquivo] || 9)
         );
 
-    let html = `<h3>📅 Arquivos de ${formatarDataBR(dia)}</h3>`;
-    html += `<div class="tabs">
-        <button id="tabConsultaArquivos" class="tab-btn active-tab" onclick="trocarAbaConsulta('arquivos','${dia}')">Arquivos</button>
-        <button id="tabConsultaCorrida" class="tab-btn" onclick="trocarAbaConsulta('corrida','${dia}')">Corrida</button>
-        <button id="tabConsultaClassificacao" class="tab-btn" onclick="trocarAbaConsulta('classificacao','${dia}')">Classificação</button>
-    </div>`;
-    html += `<div id="consultaAbaArquivos"></div><div id="consultaAbaResultado" style="display:none;"></div>`;
-
-    itens.forEach(item => {
+    const arquivosHtml = itens.map(item => {
         const aviso = item.arquivoCompletoSalvoNoFirestore === false
             ? "<br><small class='muted'>Arquivo bruto grande: salvo como metadados.</small>"
             : "";
 
-        html += `<div class="arquivo-card consulta-arquivo-item">
+        return `<div class="arquivo-card">
             <div>
                 <strong>${htmlEscape(item.tipoLabel || item.tipoArquivo || "Arquivo")}</strong><br>
                 <small>${htmlEscape(item.campeonato || "Sem campeonato")} • ${htmlEscape(item.nomeArquivo || "-")}</small>
@@ -1349,14 +1341,17 @@ function renderArquivosDoDia(dia) {
                 <button class="btn-view" style="background:#8b1f1f;" onclick="excluirImportacao('${item.key}')">EXCLUIR</button>
             </span>
         </div>`;
-    });
+    }).join("");
+
+    let html = `<h3>📅 Arquivos de ${formatarDataBR(dia)}</h3>`;
+    html += `<div class="tabs">
+        <button id="tabConsultaArquivos" class="tab-btn active-tab" onclick="trocarAbaConsulta('arquivos','${dia}')">Arquivos</button>
+        <button id="tabConsultaCorrida" class="tab-btn" onclick="trocarAbaConsulta('corrida','${dia}')">Corrida</button>
+        <button id="tabConsultaClassificacao" class="tab-btn" onclick="trocarAbaConsulta('classificacao','${dia}')">Classificação</button>
+    </div>`;
+    html += `<div id="consultaAbaArquivos">${arquivosHtml || "<p class='muted'>Nenhum arquivo para este dia.</p>"}</div><div id="consultaAbaResultado" style="display:none;"></div>`;
 
     detalhe.innerHTML = html;
-    const arquivosContainer = document.getElementById("consultaAbaArquivos");
-    if (arquivosContainer) {
-        arquivosContainer.innerHTML = Array.from(document.querySelectorAll(".consulta-arquivo-item")).map(el => el.outerHTML).join("");
-        document.querySelectorAll(".consulta-arquivo-item").forEach(el => el.remove());
-    }
     const resultado = document.getElementById("resultadoDoDia");
     if (resultado) resultado.innerHTML = "";
 }
@@ -1452,8 +1447,9 @@ async function renderResultadoDia(dia) {
         s2.forEach(d => classificacao.push(d.data()));
     }
     const filtra = rows => rows.filter(x => !pilotosSel.length || pilotosSel.includes(x.driver_name));
-    const cols = [["posicao_geral_arquivo", "Pos"], ["driver_name", "Piloto"], ["total_tempo", "T.Total"], ["total_tempo_segundos", "T.s"], ["sfspd_melhor_vlt", "S1"], ["s2_melhor_vlt", "S2"], ["s3_melhor_vlt", "S3"]];
-    const baseRows = tipoAba === "classificacao" ? classificacao : corrida;
+    const cols = [["posicao_geral_arquivo", "Pos"], ["driver_name", "Piloto"], ["total_tempo", "T.Total"], ["sfspd_melhor_vlt", "S1"], ["s2_melhor_vlt", "S2"], ["s3_melhor_vlt", "S3"]];
+    const baseRows = (tipoAba === "classificacao" ? classificacao : corrida).slice();
+    baseRows.sort((a, b) => Number(a.posicao_geral_arquivo || 9999) - Number(b.posicao_geral_arquivo || 9999));
     const tabela = rows => `<div class='table-fit'><table class='pyscript-table'><tr>${cols.map(c => `<th>${c[1]}</th>`).join("")}</tr>${rows.map(r => `<tr>${cols.map(c => {
         if (c[0] === "driver_name") return `<td>${htmlEscape(nomePilotoCurto(r.driver_name, r.driver_id || r.id_piloto))}</td>`;
         return `<td>${htmlEscape(r[c[0]] ?? "-")}</td>`;
