@@ -15,7 +15,7 @@ const COLLECTION_CAMPEONATOS = "campeonato";
 const COLLECTION_PILOTOS = "Pilotos";
 const COLLECTION_BACKUPS = "backups_importacao";
 
-const URL_API = "https://script.google.com/macros/s/AKfycbwWIL3hrPq6w6pCjCS5-ZYwv3hAY8Rr1ZjYxC-tEh7f9enmpTsZ7fzu9ilWpioQGQEc/exec";
+const SENHA_ADMIN = "123456";
 
 let DB = {
     campeonatos: [],
@@ -35,6 +35,39 @@ let IMPORTACAO_PYSCRIPT_TIPO = "";
 let IMPORTACAO_PREVIA_GERADA = false;
 
 let RANKING_FIRESTORE_CACHE = [];
+
+function pedirSenhaAdmin() {
+    return new Promise(resolve => {
+        const overlay = document.createElement("div");
+        overlay.style.cssText = "position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px;";
+        overlay.innerHTML = `<div style="width:100%;max-width:360px;background:#1d2129;border:1px solid #394150;border-radius:12px;padding:14px;">
+            <h3 style="margin:0 0 8px 0;">Senha administrativa</h3>
+            <input id="senhaAdminInput" type="password" placeholder="Digite a senha" style="width:100%;padding:12px;background:#333;border:1px solid #444;color:white;border-radius:8px;box-sizing:border-box;">
+            <div style="display:flex;gap:8px;margin-top:10px;">
+                <button id="senhaCancelar" style="background:#2b3240;border:1px solid #3a4252;">Cancelar</button>
+                <button id="senhaConfirmar">Confirmar</button>
+            </div>
+        </div>`;
+        document.body.appendChild(overlay);
+        const input = overlay.querySelector("#senhaAdminInput");
+        const fechar = ok => {
+            overlay.remove();
+            resolve(ok);
+        };
+        overlay.querySelector("#senhaCancelar")?.addEventListener("click", () => fechar(false));
+        overlay.querySelector("#senhaConfirmar")?.addEventListener("click", () => {
+            if ((input?.value || "") !== SENHA_ADMIN) {
+                alert("Senha inválida.");
+                return;
+            }
+            fechar(true);
+        });
+        input?.addEventListener("keydown", ev => {
+            if (ev.key === "Enter") overlay.querySelector("#senhaConfirmar")?.click();
+        });
+        setTimeout(() => input?.focus(), 0);
+    });
+}
 
 const PONTOS_PADRAO = {
     1: 20,
@@ -201,6 +234,16 @@ function arquivoParaDataUrl(file) {
 function getPilotoCampo(p, ...keys) {
     const achado = keys.find(k => p && p[k] !== undefined && p[k] !== null);
     return achado ? p[achado] : "";
+}
+
+function nomePilotoCurto(driverName = "", driverId = "") {
+    const piloto = DB.pilotos.find(p => String(p.id_piloto || p.driver_id || "").trim() === String(driverId || "").trim())
+        || DB.pilotos.find(p => String(p.nome || p.driver_name || "").trim().toUpperCase() === String(driverName || "").trim().toUpperCase());
+
+    const apelido = String(piloto?.apelido || "").trim();
+    if (apelido) return apelido;
+    const nome = String(driverName || "").trim();
+    return nome ? nome.split(/\s+/)[0] : "-";
 }
 
 function vinculosPiloto(p) {
@@ -692,6 +735,7 @@ async function salvarSelecionadosNoFirestore({ campeonato, etapa, dataCorrida, c
 }
 
 async function fazerBackupEProcessar() {
+    if (!await pedirSenhaAdmin()) return;
     const campeonato = document.getElementById("imp_camp")?.value || "";
     const etapa = document.getElementById("imp_etapa")?.value || "";
     const dataCorrida = document.getElementById("imp_data")?.value || "";
@@ -1208,75 +1252,6 @@ async function receberImportacaoPyScript(payloadJson) {
 window.receberImportacaoPyScript = receberImportacaoPyScript;
 window.receberResultadoFinalPyScript = receberImportacaoPyScript;
 
-async function enviarResultado(payload) {
-    const r = await fetch(URL_API, {
-        method: "POST",
-        body: JSON.stringify(payload)
-    });
-
-    const t = await r.text();
-
-    if (!t.includes("Sucesso")) {
-        throw new Error(t || "Falha ao lançar");
-    }
-}
-
-function filtrarPilotosPorCamp() {
-    const c = document.getElementById("sel_camp")?.value || "";
-    const selPiloto = document.getElementById("sel_piloto");
-
-    if (!selPiloto) return;
-
-    const pilotos = c
-        ? DB.pilotos.filter(p => vinculosPiloto(p).includes(c))
-        : DB.pilotos;
-
-    selPiloto.innerHTML = '<option value="">Selecione o Piloto</option>' +
-        pilotos.map(p => `<option value="${htmlEscape(p.nome || p.driver_name)}">${htmlEscape(p.nome || p.driver_name)}</option>`).join("");
-}
-
-async function salvar(tipo) {
-    const btn = event?.target;
-
-    if (btn) {
-        btn.innerText = "⏳ ENVIANDO...";
-        btn.disabled = true;
-    }
-
-    const p = { tipo };
-
-    if (tipo === "resultados") {
-        p.senha = document.getElementById("pass_res")?.value || "";
-        p.campeonato = document.getElementById("sel_camp")?.value || "";
-        p.piloto = document.getElementById("sel_piloto")?.value || "";
-        p.posicao = document.getElementById("res_pos")?.value || "";
-        p.etapa = document.getElementById("res_etapa")?.value || "";
-        p.data = document.getElementById("res_data")?.value || "";
-    }
-
-    try {
-        const r = await fetch(URL_API, {
-            method: "POST",
-            body: JSON.stringify(p)
-        });
-
-        const t = await r.text();
-
-        if (t.includes("Sucesso")) {
-            alert("✅ Corrida gravada com sucesso!");
-        } else {
-            alert("❌ Erro: Senha incorreta ou dados faltando.");
-        }
-    } catch (e) {
-        console.error(e);
-        alert("Erro de rede");
-    } finally {
-        if (btn) {
-            btn.disabled = false;
-            btn.innerText = "GRAVAR NO GOOGLE SHEETS";
-        }
-    }
-}
 
 async function carregarHistorico() {
     const lista = document.getElementById("listaHistorico");
@@ -1351,23 +1326,48 @@ function renderArquivosDoDia(dia) {
         );
 
     let html = `<h3>📅 Arquivos de ${formatarDataBR(dia)}</h3>`;
+    html += `<div class="tabs">
+        <button id="tabConsultaArquivos" class="tab-btn active-tab" onclick="trocarAbaConsulta('arquivos','${dia}')">Arquivos</button>
+        <button id="tabConsultaCorrida" class="tab-btn" onclick="trocarAbaConsulta('corrida','${dia}')">Corrida</button>
+        <button id="tabConsultaClassificacao" class="tab-btn" onclick="trocarAbaConsulta('classificacao','${dia}')">Classificação</button>
+    </div>`;
+    html += `<div id="consultaAbaArquivos"></div><div id="consultaAbaResultado" style="display:none;"></div>`;
 
     itens.forEach(item => {
         const aviso = item.arquivoCompletoSalvoNoFirestore === false
             ? "<br><small class='muted'>Arquivo bruto grande: salvo como metadados.</small>"
             : "";
 
-        html += `<div class="arquivo-card">
+        html += `<div class="arquivo-card consulta-arquivo-item">
             <div>
                 <strong>${htmlEscape(item.tipoLabel || item.tipoArquivo || "Arquivo")}</strong><br>
                 <small>${htmlEscape(item.campeonato || "Sem campeonato")} • ${htmlEscape(item.nomeArquivo || "-")}</small>
                 ${aviso}
             </div>
-            <button class="btn-view" onclick="verConteudo('${item.key}')">VER</button>
+            <span class="actions">
+                <button class="btn-view" onclick="verConteudo('${item.key}')">VER</button>
+                <button class="btn-view" style="background:#8b1f1f;" onclick="excluirImportacao('${item.key}')">EXCLUIR</button>
+            </span>
         </div>`;
     });
 
     detalhe.innerHTML = html;
+    const arquivosContainer = document.getElementById("consultaAbaArquivos");
+    if (arquivosContainer) {
+        arquivosContainer.innerHTML = Array.from(document.querySelectorAll(".consulta-arquivo-item")).map(el => el.outerHTML).join("");
+        document.querySelectorAll(".consulta-arquivo-item").forEach(el => el.remove());
+    }
+    const resultado = document.getElementById("resultadoDoDia");
+    if (resultado) resultado.innerHTML = "";
+}
+
+function popularPilotosFiltroDia(dia, tipoAba) {
+    const camp = document.getElementById(`filtroCampDia_${tipoAba}`)?.value || "";
+    const sel = document.getElementById(`filtroPilotosDia_${tipoAba}`);
+    if (!sel) return;
+    const itens = HISTORICO_CACHE.filter(item => extrairDataItem(item) === dia && (!camp || item.campeonato === camp));
+    const pilotos = [...new Set(itens.flatMap(i => (i.pilotosImportadosResumo || []).map(p => p.driver_name).filter(Boolean)))].sort();
+    sel.innerHTML = pilotos.map(p => `<option value="${htmlEscape(p)}">${htmlEscape(p)}</option>`).join("");
 }
 
 async function verConteudo(key) {
@@ -1398,6 +1398,89 @@ async function verConteudo(key) {
         console.error(e);
         alert(`Erro ao abrir arquivo do Firestore: ${e.message || e}`);
     }
+}
+
+async function excluirImportacao(key) {
+    if (!await pedirSenhaAdmin()) return;
+    if (!confirm("Excluir importação e dados relacionados?")) return;
+    const doc = await firestore.collection(COLLECTION_BACKUPS).doc(key).get();
+    if (!doc.exists) return alert("Importação não encontrada.");
+    const item = doc.data() || {};
+    const campId = normalizarDocId(item.campeonato || "");
+    const dataCorrida = item.dataCorrida || extrairDataItem(item);
+    const resultadoDocId = getResultadoFinalDocId(item.etapa || "sem_etapa", dataCorrida);
+    const resultRef = firestore.collection(COLLECTION_CAMPEONATOS).doc(campId).collection("resultado_final").doc(resultadoDocId);
+    for (const sub of ["pilotos_resultado", "classificacao"]) {
+        const snap = await resultRef.collection(sub).where("idImportacao", "==", key).get();
+        if (!snap.empty) {
+            const batch = firestore.batch();
+            snap.forEach(d => batch.delete(d.ref));
+            await batch.commit();
+        }
+    }
+    await firestore.collection(COLLECTION_BACKUPS).doc(key).delete();
+    alert("Importação excluída com sucesso.");
+    await carregarHistorico();
+}
+
+async function renderResultadoDia(dia) {
+    const tipoAba = window.CONSULTA_ABA_ATUAL || "corrida";
+    const alvo = document.getElementById("consultaAbaResultado");
+    if (!alvo) return;
+
+    const camps = [...new Set(HISTORICO_CACHE.filter(item => extrairDataItem(item) === dia).map(i => i.campeonato).filter(Boolean))];
+    const selectAnterior = document.getElementById(`filtroCampDia_${tipoAba}`);
+    const campAtual = selectAnterior?.value || camps[0] || "";
+
+    alvo.innerHTML = `<div class="consulta-subcard"><label class="file-label">Campeonato</label><select id="filtroCampDia_${tipoAba}" onchange="renderResultadoDia('${dia}')"><option value="">Selecione</option>${camps.map(c => `<option value="${htmlEscape(c)}"${c === campAtual ? " selected" : ""}>${htmlEscape(c)}</option>`).join("")}</select><label class="file-label">Pilotos (multi)</label><select id="filtroPilotosDia_${tipoAba}" multiple onchange="renderResultadoDia('${dia}')"></select><div id="consultaTabelaDia"></div></div>`;
+    popularPilotosFiltroDia(dia, tipoAba);
+
+    const camp = document.getElementById(`filtroCampDia_${tipoAba}`)?.value || "";
+    if (!camp) {
+        document.getElementById("consultaTabelaDia").innerHTML = "<p class='muted'>Selecione um campeonato para visualizar os dados.</p>";
+        return;
+    }
+
+    const pilotosSel = Array.from(document.getElementById(`filtroPilotosDia_${tipoAba}`)?.selectedOptions || []).map(o => o.value);
+    const campId = normalizarDocId(camp);
+    const resultados = await firestore.collection(COLLECTION_CAMPEONATOS).doc(campId).collection("resultado_final").where("dataCorrida", "==", dia).get();
+    const corrida = [];
+    const classificacao = [];
+    for (const r of resultados.docs) {
+        const [s1, s2] = await Promise.all([r.ref.collection("pilotos_resultado").get(), r.ref.collection("classificacao").get()]);
+        s1.forEach(d => corrida.push(d.data()));
+        s2.forEach(d => classificacao.push(d.data()));
+    }
+    const filtra = rows => rows.filter(x => !pilotosSel.length || pilotosSel.includes(x.driver_name));
+    const cols = [["posicao_geral_arquivo", "Pos"], ["driver_name", "Piloto"], ["total_tempo", "T.Total"], ["total_tempo_segundos", "T.s"], ["sfspd_melhor_vlt", "S1"], ["s2_melhor_vlt", "S2"], ["s3_melhor_vlt", "S3"]];
+    const baseRows = tipoAba === "classificacao" ? classificacao : corrida;
+    const tabela = rows => `<div class='table-fit'><table class='pyscript-table'><tr>${cols.map(c => `<th>${c[1]}</th>`).join("")}</tr>${rows.map(r => `<tr>${cols.map(c => {
+        if (c[0] === "driver_name") return `<td>${htmlEscape(nomePilotoCurto(r.driver_name, r.driver_id || r.id_piloto))}</td>`;
+        return `<td>${htmlEscape(r[c[0]] ?? "-")}</td>`;
+    }).join("")}</tr>`).join("")}</table></div>`;
+    document.getElementById("consultaTabelaDia").innerHTML = baseRows.length
+        ? tabela(filtra(baseRows))
+        : "<p class='muted'>Sem dados para este dia/campeonato.</p>";
+}
+
+function trocarAbaConsulta(aba, dia) {
+    window.CONSULTA_ABA_ATUAL = aba;
+    const tabArquivos = document.getElementById("tabConsultaArquivos");
+    const tabCorrida = document.getElementById("tabConsultaCorrida");
+    const tabClassificacao = document.getElementById("tabConsultaClassificacao");
+    if (tabArquivos) tabArquivos.classList.toggle("active-tab", aba === "arquivos");
+    if (tabCorrida) tabCorrida.classList.toggle("active-tab", aba === "corrida");
+    if (tabClassificacao) tabClassificacao.classList.toggle("active-tab", aba === "classificacao");
+    const abaArquivos = document.getElementById("consultaAbaArquivos");
+    const abaResultado = document.getElementById("consultaAbaResultado");
+    if (aba === "arquivos") {
+        if (abaArquivos) abaArquivos.style.display = "block";
+        if (abaResultado) abaResultado.style.display = "none";
+        return;
+    }
+    if (abaArquivos) abaArquivos.style.display = "none";
+    if (abaResultado) abaResultado.style.display = "block";
+    renderResultadoDia(dia);
 }
 
 function abrirGestao() {
@@ -1460,7 +1543,6 @@ function popularFiltros() {
     if (impData && !impData.value) impData.value = hojeISO();
     if (resData && !resData.value) resData.value = hojeISO();
 
-    filtrarPilotosPorCamp();
 }
 
 function renderGestao() {
@@ -1532,6 +1614,7 @@ function limparFormularioCampeonato() {
 }
 
 async function salvarCampeonato() {
+    if (!await pedirSenhaAdmin()) return;
     const nomeInput = document.getElementById("camp_nome");
     const descricaoInput = document.getElementById("camp_descricao");
     const dataInicioInput = document.getElementById("camp_data_inicio");
@@ -1630,6 +1713,7 @@ function limparFormularioPiloto() {
 }
 
 async function salvarPiloto() {
+    if (!await pedirSenhaAdmin()) return;
     const idInput = document.getElementById("piloto_id");
     const nomeInput = document.getElementById("piloto_nome");
     const apelidoInput = document.getElementById("piloto_apelido");
@@ -2259,4 +2343,3 @@ function toggleHistoricoLinhaFirestore(idx) {
 }
 
 fetchData();
-
