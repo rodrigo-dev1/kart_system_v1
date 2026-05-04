@@ -634,6 +634,10 @@ function selectEndFirebasePayload(item, contexto) {
         driver_name: item.driver_name || "",
         diff: item.diff || "",
         total_tempo: item.total_tempo || "",
+        s1_melhor_vlt: item.s1_melhor_vlt ?? null,
+        s2_melhor_vlt: item.s2_melhor_vlt ?? null,
+        s3_melhor_vlt: item.s3_melhor_vlt ?? null,
+        sfspd_melhor_vlt: item.sfspd_melhor_vlt ?? null,
         posicao_final2: Number(item.posicao_final2 || 0),
         pontos: Number(item.pontos || 0),
         melhor_tempo_ponto: Number(item.melhor_tempo_ponto || 0)
@@ -692,6 +696,10 @@ async function salvarSelecionadosNoFirestore({ campeonato, etapa, dataCorrida, c
             voltas: p.voltas ?? null,
             classe: p.classe || "",
             comentarios: p.comentarios || "",
+            s1_melhor_vlt: p.s1_melhor_vlt ?? null,
+            s2_melhor_vlt: p.s2_melhor_vlt ?? null,
+            s3_melhor_vlt: p.s3_melhor_vlt ?? null,
+            sfspd_melhor_vlt: p.sfspd_melhor_vlt ?? null,
             caminhoBackup: backupId ? `${COLLECTION_BACKUPS}/${backupId}` : "",
             criadoEmISO: agoraISO,
             atualizadoEmISO: agoraISO
@@ -881,6 +889,10 @@ function normalizarRegistroImportacao(item) {
         total_tempo_segundos: item.total_tempo_segundos ?? "",
         diff: item.diff || "",
         espaco: item.espaco || "",
+        s1_melhor_vlt: item.s1_melhor_vlt ?? "",
+        s2_melhor_vlt: item.s2_melhor_vlt ?? "",
+        s3_melhor_vlt: item.s3_melhor_vlt ?? "",
+        sfspd_melhor_vlt: item.sfspd_melhor_vlt ?? "",
         voltas: item.voltas ?? "",
         comentarios: item.comentarios || "",
         piloto_original: item.piloto_original || ""
@@ -1358,9 +1370,14 @@ function renderArquivosDoDia(dia) {
 
 function popularPilotosFiltroDia(dia, tipoAba) {
     const camp = document.getElementById(`filtroCampDia_${tipoAba}`)?.value || "";
+    const etapaSel = document.getElementById(`filtroEtapaDia_${tipoAba}`)?.value || "";
     const sel = document.getElementById(`filtroPilotosDia_${tipoAba}`);
     if (!sel) return;
-    const itens = HISTORICO_CACHE.filter(item => extrairDataItem(item) === dia && (!camp || item.campeonato === camp));
+    const itens = HISTORICO_CACHE.filter(item =>
+        extrairDataItem(item) === dia &&
+        (!camp || item.campeonato === camp) &&
+        (!etapaSel || String(item.etapa || "") === String(etapaSel))
+    );
     const pilotos = [...new Set(itens.flatMap(i => (i.pilotosImportadosResumo || []).map(p => p.driver_name).filter(Boolean)))].sort();
     sel.innerHTML = pilotos.map(p => `<option value="${htmlEscape(p)}">${htmlEscape(p)}</option>`).join("");
 }
@@ -1427,21 +1444,42 @@ async function renderResultadoDia(dia) {
     const selectAnterior = document.getElementById(`filtroCampDia_${tipoAba}`);
     const campAtual = selectAnterior?.value || camps[0] || "";
 
-    alvo.innerHTML = `<div class="consulta-subcard"><label class="file-label">Campeonato</label><select id="filtroCampDia_${tipoAba}" onchange="renderResultadoDia('${dia}')"><option value="">Selecione</option>${camps.map(c => `<option value="${htmlEscape(c)}"${c === campAtual ? " selected" : ""}>${htmlEscape(c)}</option>`).join("")}</select><label class="file-label">Pilotos (multi)</label><select id="filtroPilotosDia_${tipoAba}" multiple onchange="renderResultadoDia('${dia}')"></select><div id="consultaTabelaDia"></div></div>`;
+    const camp = campAtual;
+    const etapasDisponiveis = [...new Set(
+        HISTORICO_CACHE
+            .filter(item => extrairDataItem(item) === dia && item.campeonato === camp)
+            .map(item => String(item.etapa || "").trim())
+            .filter(Boolean)
+    )]
+        .sort((a, b) => Number(a) - Number(b));
+    const selectEtapaAnterior = document.getElementById(`filtroEtapaDia_${tipoAba}`);
+    const etapaAtual = etapasDisponiveis.includes(selectEtapaAnterior?.value || "")
+        ? selectEtapaAnterior.value
+        : (etapasDisponiveis.length === 1 ? etapasDisponiveis[0] : "");
+
+    alvo.innerHTML = `<div class="consulta-subcard"><label class="file-label">Campeonato</label><select id="filtroCampDia_${tipoAba}" onchange="renderResultadoDia('${dia}')"><option value="">Selecione</option>${camps.map(c => `<option value="${htmlEscape(c)}"${c === campAtual ? " selected" : ""}>${htmlEscape(c)}</option>`).join("")}</select>${camp ? `<label class="file-label">Etapa</label><select id="filtroEtapaDia_${tipoAba}" onchange="renderResultadoDia('${dia}')"><option value="">${etapasDisponiveis.length > 1 ? "Selecione a etapa" : "Etapa"}</option>${etapasDisponiveis.map(e => `<option value="${htmlEscape(e)}"${e === etapaAtual ? " selected" : ""}>${htmlEscape(e)}</option>`).join("")}</select>` : ""}<label class="file-label">Pilotos (multi)</label><select id="filtroPilotosDia_${tipoAba}" multiple onchange="renderResultadoDia('${dia}')"></select><div id="consultaTabelaDia"></div></div>`;
     popularPilotosFiltroDia(dia, tipoAba);
 
-    const camp = document.getElementById(`filtroCampDia_${tipoAba}`)?.value || "";
-    if (!camp) {
+    const campSelecionado = document.getElementById(`filtroCampDia_${tipoAba}`)?.value || "";
+    const etapaSelecionada = document.getElementById(`filtroEtapaDia_${tipoAba}`)?.value || "";
+    if (!campSelecionado) {
         document.getElementById("consultaTabelaDia").innerHTML = "<p class='muted'>Selecione um campeonato para visualizar os dados.</p>";
+        return;
+    }
+    if (etapasDisponiveis.length > 1 && !etapaSelecionada) {
+        document.getElementById("consultaTabelaDia").innerHTML = "<p class='muted'>Selecione a etapa para visualizar os dados sem duplicidade.</p>";
         return;
     }
 
     const pilotosSel = Array.from(document.getElementById(`filtroPilotosDia_${tipoAba}`)?.selectedOptions || []).map(o => o.value);
-    const campId = normalizarDocId(camp);
+    const campId = normalizarDocId(campSelecionado);
     const resultados = await firestore.collection(COLLECTION_CAMPEONATOS).doc(campId).collection("resultado_final").where("dataCorrida", "==", dia).get();
+    const docsFiltrados = etapaSelecionada
+        ? resultados.docs.filter(r => String(r.data()?.etapa || "") === String(etapaSelecionada))
+        : resultados.docs;
     const corrida = [];
     const classificacao = [];
-    for (const r of resultados.docs) {
+    for (const r of docsFiltrados) {
         const [s1, s2] = await Promise.all([r.ref.collection("pilotos_resultado").get(), r.ref.collection("classificacao").get()]);
         s1.forEach(d => corrida.push(d.data()));
         s2.forEach(d => classificacao.push(d.data()));
@@ -1450,8 +1488,8 @@ async function renderResultadoDia(dia) {
     const colsResumo = tipoAba === "classificacao"
         ? [["posicao_geral_arquivo", "Pos"], ["driver_name", "Piloto"], ["melhor_tempo", "Melhor volta"]]
         : [["posicao_geral_arquivo", "Pos"], ["driver_name", "Piloto"], ["total_tempo", "T.Total"]];
-    const detalhesCorrida = [["melhor_tempo", "Melhor Vlt"], ["s2_melhor_vlt", "S2 Melhor Vlt"], ["s3_melhor_vlt", "S3 Melhor Vlt"], ["sfspd_melhor_vlt", "SFSpd Melhor Vlt"], ["kart_number", "Kart"], ["best_lap", "Volta"]];
-    const detalhesClassificacao = [["melhor_tempo", "Melhor Vlt"], ["s2_melhor_vlt", "S2 Melhor Vlt"], ["s3_melhor_vlt", "S3 Melhor Vlt"], ["sfspd_melhor_vlt", "SFSpd Melhor Vlt"], ["total_tempo", "T.Total"], ["kart_number", "Kart"], ["best_lap", "Volta"], ["pontos", "Pts"], ["melhor_tempo_ponto", "Bônus melhor volta"]];
+    const detalhesCorrida = [["melhor_tempo", "Melhor Vlt"], ["s1_melhor_vlt", "S1 Melhor Vlt"], ["s2_melhor_vlt", "S2 Melhor Vlt"], ["s3_melhor_vlt", "S3 Melhor Vlt"], ["sfspd_melhor_vlt", "SFSpd Melhor Vlt"], ["kart_number", "Kart"], ["best_lap", "Volta"]];
+    const detalhesClassificacao = [["melhor_tempo", "Melhor Vlt"], ["s1_melhor_vlt", "S1 Melhor Vlt"], ["s2_melhor_vlt", "S2 Melhor Vlt"], ["s3_melhor_vlt", "S3 Melhor Vlt"], ["sfspd_melhor_vlt", "SFSpd Melhor Vlt"], ["total_tempo", "T.Total"], ["kart_number", "Kart"], ["best_lap", "Volta"], ["pontos", "Pts"], ["melhor_tempo_ponto", "Bônus melhor volta"]];
     const baseRows = (tipoAba === "classificacao" ? classificacao : corrida).slice();
     baseRows.sort((a, b) => Number(a.posicao_geral_arquivo || 9999) - Number(b.posicao_geral_arquivo || 9999));
 
