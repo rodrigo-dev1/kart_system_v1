@@ -37,6 +37,38 @@ let IMPORTACAO_PREVIA_GERADA = false;
 let RANKING_FIRESTORE_CACHE = [];
 
 function pedirSenhaAdmin() {
+<<<<<<< codex/add-delete-import-option-to-consult-screen-0scgzh
+    return new Promise(resolve => {
+        const overlay = document.createElement("div");
+        overlay.style.cssText = "position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px;";
+        overlay.innerHTML = `<div style="width:100%;max-width:360px;background:#1d2129;border:1px solid #394150;border-radius:12px;padding:14px;">
+            <h3 style="margin:0 0 8px 0;">Senha administrativa</h3>
+            <input id="senhaAdminInput" type="password" placeholder="Digite a senha" style="width:100%;padding:12px;background:#333;border:1px solid #444;color:white;border-radius:8px;box-sizing:border-box;">
+            <div style="display:flex;gap:8px;margin-top:10px;">
+                <button id="senhaCancelar" style="background:#2b3240;border:1px solid #3a4252;">Cancelar</button>
+                <button id="senhaConfirmar">Confirmar</button>
+            </div>
+        </div>`;
+        document.body.appendChild(overlay);
+        const input = overlay.querySelector("#senhaAdminInput");
+        const fechar = ok => {
+            overlay.remove();
+            resolve(ok);
+        };
+        overlay.querySelector("#senhaCancelar")?.addEventListener("click", () => fechar(false));
+        overlay.querySelector("#senhaConfirmar")?.addEventListener("click", () => {
+            if ((input?.value || "") !== SENHA_ADMIN) {
+                alert("Senha inválida.");
+                return;
+            }
+            fechar(true);
+        });
+        input?.addEventListener("keydown", ev => {
+            if (ev.key === "Enter") overlay.querySelector("#senhaConfirmar")?.click();
+        });
+        setTimeout(() => input?.focus(), 0);
+    });
+=======
     const senha = prompt("Digite a senha para continuar:") || "";
 
     if (senha !== SENHA_ADMIN) {
@@ -45,6 +77,7 @@ function pedirSenhaAdmin() {
     }
 
     return true;
+>>>>>>> main
 }
 
 const PONTOS_PADRAO = {
@@ -713,7 +746,11 @@ async function salvarSelecionadosNoFirestore({ campeonato, etapa, dataCorrida, c
 }
 
 async function fazerBackupEProcessar() {
+<<<<<<< codex/add-delete-import-option-to-consult-screen-0scgzh
+    if (!await pedirSenhaAdmin()) return;
+=======
     if (!pedirSenhaAdmin()) return;
+>>>>>>> main
     const campeonato = document.getElementById("imp_camp")?.value || "";
     const etapa = document.getElementById("imp_etapa")?.value || "";
     const dataCorrida = document.getElementById("imp_data")?.value || "";
@@ -1379,7 +1416,11 @@ async function verConteudo(key) {
 }
 
 async function excluirImportacao(key) {
+<<<<<<< codex/add-delete-import-option-to-consult-screen-0scgzh
+    if (!await pedirSenhaAdmin()) return;
+=======
     if (!pedirSenhaAdmin()) return;
+>>>>>>> main
     if (!confirm("Excluir importação e dados relacionados?")) return;
     const doc = await firestore.collection(COLLECTION_BACKUPS).doc(key).get();
     if (!doc.exists) return alert("Importação não encontrada.");
@@ -1403,6 +1444,24 @@ async function excluirImportacao(key) {
 
 async function renderResultadoDia(dia) {
     const tipoAba = window.CONSULTA_ABA_ATUAL || "corrida";
+<<<<<<< codex/add-delete-import-option-to-consult-screen-0scgzh
+    const alvo = document.getElementById("consultaAbaResultado");
+    if (!alvo) return;
+
+    const camps = [...new Set(HISTORICO_CACHE.filter(item => extrairDataItem(item) === dia).map(i => i.campeonato).filter(Boolean))];
+    const selectAnterior = document.getElementById(`filtroCampDia_${tipoAba}`);
+    const campAtual = selectAnterior?.value || camps[0] || "";
+
+    alvo.innerHTML = `<div class="consulta-subcard"><label class="file-label">Campeonato</label><select id="filtroCampDia_${tipoAba}" onchange="renderResultadoDia('${dia}')"><option value="">Selecione</option>${camps.map(c => `<option value="${htmlEscape(c)}"${c === campAtual ? " selected" : ""}>${htmlEscape(c)}</option>`).join("")}</select><label class="file-label">Pilotos (multi)</label><select id="filtroPilotosDia_${tipoAba}" multiple onchange="renderResultadoDia('${dia}')"></select><div id="consultaTabelaDia"></div></div>`;
+    popularPilotosFiltroDia(dia, tipoAba);
+
+    const camp = document.getElementById(`filtroCampDia_${tipoAba}`)?.value || "";
+    if (!camp) {
+        document.getElementById("consultaTabelaDia").innerHTML = "<p class='muted'>Selecione um campeonato para visualizar os dados.</p>";
+        return;
+    }
+
+=======
     popularPilotosFiltroDia(dia, tipoAba);
     const camp = document.getElementById(`filtroCampDia_${tipoAba}`)?.value || "";
     const alvo = document.getElementById("consultaAbaResultado");
@@ -1410,6 +1469,7 @@ async function renderResultadoDia(dia) {
         if (alvo) alvo.innerHTML = "";
         return;
     }
+>>>>>>> main
     const pilotosSel = Array.from(document.getElementById(`filtroPilotosDia_${tipoAba}`)?.selectedOptions || []).map(o => o.value);
     const campId = normalizarDocId(camp);
     const resultados = await firestore.collection(COLLECTION_CAMPEONATOS).doc(campId).collection("resultado_final").where("dataCorrida", "==", dia).get();
@@ -1427,9 +1487,15 @@ async function renderResultadoDia(dia) {
         if (c[0] === "driver_name") return `<td>${htmlEscape(nomePilotoCurto(r.driver_name, r.driver_id || r.id_piloto))}</td>`;
         return `<td>${htmlEscape(r[c[0]] ?? "-")}</td>`;
     }).join("")}</tr>`).join("")}</table></div>`;
+<<<<<<< codex/add-delete-import-option-to-consult-screen-0scgzh
+    document.getElementById("consultaTabelaDia").innerHTML = baseRows.length
+        ? tabela(filtra(baseRows))
+        : "<p class='muted'>Sem dados para este dia/campeonato.</p>";
+=======
     const camps = [...new Set(HISTORICO_CACHE.filter(item => extrairDataItem(item) === dia).map(i => i.campeonato).filter(Boolean))];
     alvo.innerHTML = `<div class="consulta-subcard"><label class="file-label">Campeonato</label><select id="filtroCampDia_${tipoAba}" onchange="renderResultadoDia('${dia}')"><option value="">Selecione</option>${camps.map(c => `<option value="${htmlEscape(c)}">${htmlEscape(c)}</option>`).join("")}</select><label class="file-label">Pilotos (multi)</label><select id="filtroPilotosDia_${tipoAba}" multiple onchange="renderResultadoDia('${dia}')"></select>${tabela(filtra(baseRows))}</div>`;
     popularPilotosFiltroDia(dia, tipoAba);
+>>>>>>> main
 }
 
 function trocarAbaConsulta(aba, dia) {
@@ -1583,7 +1649,11 @@ function limparFormularioCampeonato() {
 }
 
 async function salvarCampeonato() {
+<<<<<<< codex/add-delete-import-option-to-consult-screen-0scgzh
+    if (!await pedirSenhaAdmin()) return;
+=======
     if (!pedirSenhaAdmin()) return;
+>>>>>>> main
     const nomeInput = document.getElementById("camp_nome");
     const descricaoInput = document.getElementById("camp_descricao");
     const dataInicioInput = document.getElementById("camp_data_inicio");
@@ -1682,7 +1752,11 @@ function limparFormularioPiloto() {
 }
 
 async function salvarPiloto() {
+<<<<<<< codex/add-delete-import-option-to-consult-screen-0scgzh
+    if (!await pedirSenhaAdmin()) return;
+=======
     if (!pedirSenhaAdmin()) return;
+>>>>>>> main
     const idInput = document.getElementById("piloto_id");
     const nomeInput = document.getElementById("piloto_nome");
     const apelidoInput = document.getElementById("piloto_apelido");
