@@ -1450,8 +1450,8 @@ async function renderResultadoDia(dia) {
     const colsResumo = tipoAba === "classificacao"
         ? [["posicao_geral_arquivo", "Pos"], ["driver_name", "Piloto"], ["melhor_tempo", "Melhor volta"]]
         : [["posicao_geral_arquivo", "Pos"], ["driver_name", "Piloto"], ["total_tempo", "T.Total"]];
-    const detalhesCorrida = [["melhor_tempo", "Melhor Vlt"], ["s2_melhor_vlt", "S2 Melhor Vlt"], ["s3_melhor_vlt", "S3 Melhor Vlt"], ["sfspd_melhor_vlt", "SFSpd Melhor Vlt"], ["kart_number", "Kart"], ["best_lap", "Volta"]];
-    const detalhesClassificacao = [["melhor_tempo", "Melhor Vlt"], ["s2_melhor_vlt", "S2 Melhor Vlt"], ["s3_melhor_vlt", "S3 Melhor Vlt"], ["sfspd_melhor_vlt", "SFSpd Melhor Vlt"], ["total_tempo", "T.Total"], ["kart_number", "Kart"], ["best_lap", "Volta"], ["pontos", "Pts"], ["melhor_tempo_ponto", "Bônus melhor volta"]];
+    const detalhesCorrida = [["melhor_tempo", "Melhor Vlt"], ["s1_melhor_vlt", "S1 Melhor Vlt"], ["s2_melhor_vlt", "S2 Melhor Vlt"], ["s3_melhor_vlt", "S3 Melhor Vlt"], ["sfspd_melhor_vlt", "SFSpd Melhor Vlt"], ["kart_number", "Kart"], ["best_lap", "Volta"]];
+    const detalhesClassificacao = [["melhor_tempo", "Melhor Vlt"], ["s1_melhor_vlt", "S1 Melhor Vlt"], ["s2_melhor_vlt", "S2 Melhor Vlt"], ["s3_melhor_vlt", "S3 Melhor Vlt"], ["sfspd_melhor_vlt", "SFSpd Melhor Vlt"], ["total_tempo", "T.Total"], ["kart_number", "Kart"], ["best_lap", "Volta"], ["pontos", "Pts"], ["melhor_tempo_ponto", "Bônus melhor volta"]];
     const baseRows = (tipoAba === "classificacao" ? classificacao : corrida).slice();
     baseRows.sort((a, b) => Number(a.posicao_geral_arquivo || 9999) - Number(b.posicao_geral_arquivo || 9999));
 
