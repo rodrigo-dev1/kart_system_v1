@@ -88,7 +88,7 @@ const PONTOS_PADRAO = {
 const TIPOS_ARQUIVO = [
     { tipo: "resultado_final", label: "Resultado final", usaPreview: true },
     { tipo: "classificacao", label: "Classificação", usaPreview: true },
-    { tipo: "volta_a_volta", label: "Volta a volta", usaPreview: false }
+    { tipo: "volta_a_volta", label: "Volta a volta", usaPreview: false, usaSelecaoHistoria: true }
 ];
 
 async function fetchData() {
@@ -320,9 +320,13 @@ function onTipoArquivoImportChange() {
     if (label) label.textContent = `Arquivo — ${cfg.label}`;
 
     if (pyStatus) {
-        pyStatus.innerHTML = cfg.usaPreview
-            ? `✅ Tipo selecionado: ${cfg.label}. Escolha o arquivo para liberar a lista única de importação abaixo.`
-            : `ℹ️ Tipo selecionado: ${cfg.label}. Este arquivo será salvo no Firestore, sem prévia de pilotos.`;
+        if (cfg.tipo === "volta_a_volta") {
+            pyStatus.innerHTML = `✅ Tipo selecionado: ${cfg.label}. Escolha o arquivo para listar apenas os pilotos vinculados ao campeonato e gerar as histórias com IA.`;
+        } else {
+            pyStatus.innerHTML = cfg.usaPreview
+                ? `✅ Tipo selecionado: ${cfg.label}. Escolha o arquivo para liberar a lista única de importação abaixo.`
+                : `ℹ️ Tipo selecionado: ${cfg.label}. Este arquivo será salvo no Firestore, sem prévia de pilotos.`;
+        }
     }
 }
 
@@ -330,6 +334,16 @@ window.onTipoArquivoImportChange = onTipoArquivoImportChange;
 
 async function atualizarPreviewImportacaoAtual() {
     const campeonato = document.getElementById("imp_camp")?.value || "";
+    const cfg = getTipoArquivoSelecionado();
+
+    if (cfg?.tipo === "volta_a_volta") {
+        const file = document.getElementById("fileImportacaoUnico")?.files?.[0];
+
+        if (file) {
+            await prepararPreviewVoltaAVoltaSelecionado(file);
+            return;
+        }
+    }
 
     if (IMPORTACAO_PREVIA.length && campeonato) {
         await marcarPilotosJaVinculadosAoCampeonato(campeonato, true);
@@ -766,6 +780,216 @@ function extrairVoltaAVoltaHTMLTexto(html, nomeArquivo = "") {
     return dados;
 }
 
+
+function encontrarPilotoCadastradoPorArquivo(item) {
+    const idItem = String(item?.driver_id || item?.id_piloto || "").trim();
+    const nomeItem = normalizarNomeComparacao(item?.driver_name || item?.nome || item?.piloto || "");
+
+    return DB.pilotos.find(p => {
+        const idPiloto = String(p.id_piloto || p.driver_id || p.id || "").trim();
+        if (idItem && idPiloto && idItem === idPiloto) return true;
+
+        const nomePiloto = normalizarNomeComparacao(p.nome || p.driver_name || "");
+        return !!nomeItem && !!nomePiloto && nomeItem === nomePiloto;
+    }) || null;
+}
+
+function pilotoArquivoEstaNoCampeonato(item, campeonato) {
+    if (!campeonato) return false;
+
+    const pilotoCadastrado = encontrarPilotoCadastradoPorArquivo(item);
+    if (!pilotoCadastrado) return false;
+
+    return vinculosPiloto(pilotoCadastrado).includes(campeonato);
+}
+
+function pilotosUnicosVoltaAVoltaParaPreview(voltas) {
+    const mapa = new Map();
+
+    (voltas || []).forEach((volta, idx) => {
+        const driverId = String(volta.driver_id || "").trim();
+        const driverName = String(volta.driver_name || "").trim();
+        const key = driverId ? `id:${driverId}` : `nome:${normalizarNomeComparacao(driverName)}`;
+
+        if (!driverName && !driverId) return;
+
+        if (!mapa.has(key)) {
+            mapa.set(key, {
+                driver_id: driverId,
+                id_piloto: driverId,
+                driver_name: driverName || "-",
+                nome: driverName || "-",
+                posicao_final: idx + 1,
+                posicao_geral_arquivo: idx + 1,
+                posGeral: idx + 1,
+                kart_numero: volta.kart_numero || "",
+                classe: volta.classe || "",
+                voltas: 0,
+                melhor_tempo: "",
+                melhor_tempo_segundos: null,
+                tipoArquivo: "volta_a_volta",
+                somenteHistoria: true,
+                checked: false,
+                conflitoId: false,
+                status: ""
+            });
+        }
+
+        const item = mapa.get(key);
+        item.voltas = Number(item.voltas || 0) + 1;
+
+        const tempoAtual = tempoParaSegundosJS(volta.tempo_volta);
+        const tempoMelhor = tempoParaSegundosJS(item.melhor_tempo);
+
+        if (tempoAtual !== null && (tempoMelhor === null || tempoAtual < tempoMelhor)) {
+            item.melhor_tempo = volta.tempo_volta || "";
+            item.melhor_tempo_segundos = tempoAtual;
+        }
+    });
+
+    return Array.from(mapa.values());
+}
+
+function montarImportacaoPreviaVoltaAVolta(registrosVoltas, campeonato = "", exibirHint = true) {
+    const pilotosArquivo = pilotosUnicosVoltaAVoltaParaPreview(registrosVoltas);
+    const pilotosCampeonato = pilotosArquivo
+        .map(item => {
+            const pilotoCadastrado = encontrarPilotoCadastradoPorArquivo(item);
+            const estaNoCampeonato = pilotoCadastrado ? vinculosPiloto(pilotoCadastrado).includes(campeonato) : false;
+
+            return {
+                ...item,
+                driver_id: String(item.driver_id || pilotoCadastrado?.driver_id || pilotoCadastrado?.id_piloto || "").trim(),
+                id_piloto: String(item.driver_id || pilotoCadastrado?.driver_id || pilotoCadastrado?.id_piloto || "").trim(),
+                driver_name: item.driver_name || pilotoCadastrado?.driver_name || pilotoCadastrado?.nome || "-",
+                nome: item.driver_name || pilotoCadastrado?.driver_name || pilotoCadastrado?.nome || "-",
+                checked: !!estaNoCampeonato,
+                foraDoCampeonato: !estaNoCampeonato,
+                conflitoId: !estaNoCampeonato,
+                status: estaNoCampeonato
+                    ? "Piloto do campeonato — história individual será gerada se marcado"
+                    : campeonato
+                        ? "Ignorado: piloto não está vinculado ao campeonato"
+                        : "Selecione um campeonato para validar o vínculo"
+            };
+        })
+        .filter(item => campeonato ? !item.foraDoCampeonato : true)
+        .sort((a, b) => String(a.driver_name || "").localeCompare(String(b.driver_name || "")));
+
+    IMPORTACAO_PREVIA = pilotosCampeonato.map((item, idx) => ({
+        ...item,
+        posicao_final: idx + 1,
+        posicao_geral_arquivo: idx + 1,
+        posGeral: idx + 1
+    }));
+
+    IMPORTACAO_PREVIA_GERADA = true;
+    recalcularPreviewImportacao(campeonato, exibirHint, false);
+
+    return IMPORTACAO_PREVIA;
+}
+
+async function prepararPreviewVoltaAVoltaSelecionado(fileArg = null) {
+    const cfg = getTipoArquivoSelecionado();
+    const status = document.getElementById("statusImport");
+    const pyStatus = document.getElementById("pyStatus");
+    const campeonato = document.getElementById("imp_camp")?.value || "";
+    const file = fileArg || document.getElementById("fileImportacaoUnico")?.files?.[0];
+
+    if (cfg?.tipo !== "volta_a_volta" || !file) return;
+
+    try {
+        if (pyStatus) pyStatus.innerHTML = `⏳ Lendo ${htmlEscape(file.name)} para identificar pilotos do campeonato...`;
+
+        await carregarDadosBaseFirestore();
+
+        const html = isArquivoTexto(file) ? await file.text() : "";
+
+        if (!html) {
+            if (pyStatus) pyStatus.innerHTML = "⚠️ Para Volta a volta, use arquivo HTML, HTM, XML ou TXT.";
+            return;
+        }
+
+        const voltas = extrairVoltaAVoltaHTMLTexto(html, file.name);
+        const pilotos = montarImportacaoPreviaVoltaAVolta(voltas, campeonato, true);
+        const qtdVoltas = voltas.length;
+        const qtdPilotos = pilotos.length;
+
+        if (!campeonato) {
+            if (status) status.innerHTML = "⚠️ Selecione o campeonato para filtrar somente os pilotos vinculados antes de salvar e gerar história.";
+        } else if (!qtdPilotos) {
+            if (status) status.innerHTML = "⚠️ Nenhum piloto do arquivo está vinculado ao campeonato selecionado. Confira o cadastro de pilotos em Opções.";
+        } else if (status) {
+            status.innerHTML = `✅ Volta a volta lido: ${qtdVoltas} volta(s) e ${qtdPilotos} piloto(s) do campeonato encontrados. Marque quem deve receber história individual.`;
+        }
+
+        if (pyStatus) {
+            pyStatus.innerHTML = qtdPilotos
+                ? `✅ Volta a volta lido: ${qtdPilotos} piloto(s) do campeonato identificados.`
+                : "⚠️ Volta a volta lido, mas nenhum piloto vinculado ao campeonato foi identificado.";
+        }
+    } catch (e) {
+        console.error(e);
+        if (pyStatus) pyStatus.innerHTML = `❌ Erro ao ler Volta a volta: ${htmlEscape(e.message || e)}`;
+        if (status) status.innerHTML = `❌ Erro ao ler Volta a volta: ${htmlEscape(e.message || e)}`;
+    }
+}
+
+async function prepararPreviewVoltaAVoltaPyScript(html, nomeArquivo = "arquivo.html") {
+    const cfg = getTipoArquivoSelecionado();
+    if (cfg?.tipo !== "volta_a_volta") return;
+
+    const campeonato = document.getElementById("imp_camp")?.value || "";
+    const status = document.getElementById("statusImport");
+    const pyStatus = document.getElementById("pyStatus");
+
+    try {
+        await carregarDadosBaseFirestore();
+        const voltas = extrairVoltaAVoltaHTMLTexto(html, nomeArquivo);
+        const pilotos = montarImportacaoPreviaVoltaAVolta(voltas, campeonato, true);
+
+        if (pyStatus) {
+            pyStatus.innerHTML = pilotos.length
+                ? `✅ Volta a volta lido: ${pilotos.length} piloto(s) do campeonato identificados.`
+                : "⚠️ Volta a volta lido, mas nenhum piloto vinculado ao campeonato foi identificado.";
+        }
+
+        if (status && campeonato) {
+            status.innerHTML = pilotos.length
+                ? `✅ Marque os pilotos que devem receber história individual e clique em salvar.`
+                : "⚠️ Nenhum piloto do arquivo está vinculado ao campeonato selecionado.";
+        }
+    } catch (e) {
+        console.error(e);
+        if (pyStatus) pyStatus.innerHTML = `❌ Erro ao ler Volta a volta: ${htmlEscape(e.message || e)}`;
+    }
+}
+
+function inicializarPreviewVoltaAVoltaJS() {
+    const input = document.getElementById("fileImportacaoUnico");
+    if (!input || input.dataset.voltaPreviewListener === "1") return;
+
+    input.dataset.voltaPreviewListener = "1";
+    input.addEventListener("change", async event => {
+        const cfg = getTipoArquivoSelecionado();
+        if (cfg?.tipo !== "volta_a_volta") return;
+
+        const file = event.target?.files?.[0];
+        if (!file) return;
+
+        IMPORTACAO_PYSCRIPT = [];
+        IMPORTACAO_PYSCRIPT_ARQUIVO = file.name || "";
+        IMPORTACAO_PYSCRIPT_TIPO = "volta_a_volta";
+        IMPORTACAO_PREVIA = [];
+        IMPORTACAO_PREVIA_GERADA = false;
+
+        await prepararPreviewVoltaAVoltaSelecionado(file);
+    });
+}
+
+window.prepararPreviewVoltaAVoltaSelecionado = prepararPreviewVoltaAVoltaSelecionado;
+window.prepararPreviewVoltaAVoltaPyScript = prepararPreviewVoltaAVoltaPyScript;
+
 function pilotoChaveHistoria(item) {
     const driverId = String(item?.driver_id || item?.id_piloto || "").trim();
     if (driverId) return `id:${driverId}`;
@@ -862,25 +1086,37 @@ function montarPilotosParaHistoria(corrida, classificacao, voltas) {
     return Array.from(mapa.values()).sort((a, b) => String(a.driver_name || "").localeCompare(String(b.driver_name || "")));
 }
 
-function montarContextoGeralHistoria({ campeonato, etapa, dataCorrida, corrida, classificacao, voltas }) {
-    const pilotos = montarPilotosParaHistoria(corrida, classificacao, voltas);
+function filtrarRowsPorPilotosHistoria(rows, pilotosAlvo) {
+    const pilotos = Array.isArray(pilotosAlvo) ? pilotosAlvo.filter(Boolean) : [];
+
+    if (!pilotos.length) return rows || [];
+
+    return (rows || []).filter(row => pilotos.some(piloto => mesmoPilotoHistoria(row, piloto)));
+}
+
+function montarContextoGeralHistoria({ campeonato, etapa, dataCorrida, corrida, classificacao, voltas, pilotosAlvo = [] }) {
+    const pilotos = Array.isArray(pilotosAlvo) && pilotosAlvo.length
+        ? pilotosAlvo
+        : montarPilotosParaHistoria(corrida, classificacao, voltas);
     const idsPilotos = new Set(pilotos.map(p => pilotoChaveHistoria(p)));
+    const corridaFiltrada = filtrarRowsPorPilotosHistoria(corrida, pilotos);
+    const classificacaoFiltrada = filtrarRowsPorPilotosHistoria(classificacao, pilotos);
     const voltasFiltradas = (voltas || []).filter(v => idsPilotos.has(pilotoChaveHistoria(v)));
 
-    const linhasResultado = ordenarPorPosicaoHistoria(corrida)
+    const linhasResultado = ordenarPorPosicaoHistoria(corridaFiltrada)
         .map(row => linhaResumoResultadoHistoria(row, "resultado"))
-        .join("\n") || "Sem resultado final importado.";
+        .join("\n") || "Sem resultado final importado para os pilotos selecionados.";
 
-    const linhasClassificacao = ordenarPorPosicaoHistoria(classificacao)
+    const linhasClassificacao = ordenarPorPosicaoHistoria(classificacaoFiltrada)
         .map(row => linhaResumoResultadoHistoria(row, "classificacao"))
-        .join("\n") || "Sem classificação importada.";
+        .join("\n") || "Sem classificação importada para os pilotos selecionados.";
 
     const resumoVoltas = pilotos.map(piloto => {
         const voltasPiloto = voltasFiltradas.filter(v => mesmoPilotoHistoria(v, piloto));
         return `\n### ${piloto.driver_name}\n${resumirVoltasPilotoHistoria(voltasPiloto, 10)}`;
     }).join("\n");
 
-    return `CAMPEONATO: ${campeonato}\nETAPA: ${etapa}\nDATA: ${formatarDataBR(dataCorrida)}\n\nRESULTADO FINAL:\n${linhasResultado}\n\nCLASSIFICAÇÃO / TOMADA:\n${linhasClassificacao}\n\nVOLTA A VOLTA RESUMIDO:${resumoVoltas || "\nSem volta a volta importado."}`;
+    return `CAMPEONATO: ${campeonato}\nETAPA: ${etapa}\nDATA: ${formatarDataBR(dataCorrida)}\nPILOTOS ANALISADOS: ${pilotos.map(p => p.driver_name || p.nome || p.driver_id || "-").join(", ")}\n\nRESULTADO FINAL:\n${linhasResultado}\n\nCLASSIFICAÇÃO / TOMADA:\n${linhasClassificacao}\n\nVOLTA A VOLTA RESUMIDO:${resumoVoltas || "\nSem volta a volta importado."}`;
 }
 
 function montarContextoPilotoHistoria({ piloto, corrida, classificacao, voltas }) {
@@ -1032,7 +1268,16 @@ async function salvarHistoriaPilotoFirestore({ resultadoDocRef, piloto, historia
     await Promise.all(writes);
 }
 
-async function gerarHistoriasAposImportacao({ campeonato, etapa, dataCorrida, cfg, conteudoVoltaAtual = "", nomeArquivoAtual = "", status = null }) {
+async function gerarHistoriasAposImportacao({
+    campeonato,
+    etapa,
+    dataCorrida,
+    cfg,
+    conteudoVoltaAtual = "",
+    nomeArquivoAtual = "",
+    status = null,
+    pilotosSelecionadosHistoria = null
+}) {
     const config = obterConfigHistoriaIAImportacao();
 
     if (!config.gerar) return "";
@@ -1044,9 +1289,21 @@ async function gerarHistoriasAposImportacao({ campeonato, etapa, dataCorrida, cf
     if (status) status.innerHTML = "⏳ Coletando dados da corrida para gerar história com IA...";
 
     const dados = await coletarDadosCorridaParaHistoria({ campeonato, etapa, dataCorrida, conteudoVoltaAtual, nomeArquivoAtual });
+    const selecionadosInformados = Array.isArray(pilotosSelecionadosHistoria)
+        ? pilotosSelecionadosHistoria
+            .filter(p => p && !p.conflitoId && (p.checked === undefined || p.checked))
+            .map(p => ({
+                driver_id: String(p.driver_id || p.id_piloto || "").trim(),
+                id_piloto: String(p.driver_id || p.id_piloto || "").trim(),
+                driver_name: p.driver_name || p.nome || p.piloto || "-",
+                nome: p.driver_name || p.nome || p.piloto || "-"
+            }))
+        : [];
 
-    if (!dados.pilotos.length) {
-        return "⚠️ História IA não gerada: não encontrei pilotos na corrida, classificação ou volta a volta.";
+    const pilotosBase = selecionadosInformados.length ? selecionadosInformados : dados.pilotos;
+
+    if (!pilotosBase.length) {
+        return "⚠️ História IA não gerada: não encontrei pilotos selecionados na corrida, classificação ou volta a volta.";
     }
 
     const agoraISO = new Date().toISOString();
@@ -1056,7 +1313,8 @@ async function gerarHistoriasAposImportacao({ campeonato, etapa, dataCorrida, cf
         dataCorrida,
         corrida: dados.corrida,
         classificacao: dados.classificacao,
-        voltas: dados.voltas
+        voltas: dados.voltas,
+        pilotosAlvo: pilotosBase
     });
 
     if (status) status.innerHTML = "⏳ Gerando história geral da corrida com IA...";
@@ -1082,14 +1340,28 @@ async function gerarHistoriasAposImportacao({ campeonato, etapa, dataCorrida, cf
             modelo: config.modelo,
             origem: "gemini",
             atualizadoEmISO: agoraISO,
-            tipoArquivoDisparador: cfg?.tipo || ""
+            tipoArquivoDisparador: cfg?.tipo || "",
+            pilotosSelecionados: pilotosBase.map(p => ({
+                driver_id: p.driver_id || p.id_piloto || "",
+                driver_name: p.driver_name || p.nome || ""
+            }))
         },
         historiaAtualizadaEmISO: agoraISO,
         historiaModelo: config.modelo,
+        historiaFonte: {
+            resultado_final: !!dados.corrida.length,
+            classificacao: !!dados.classificacao.length,
+            volta_a_volta: !!dados.voltas.length,
+            arquivoAtual: nomeArquivoAtual || ""
+        },
+        historiaPilotosSelecionados: pilotosBase.map(p => ({
+            driver_id: p.driver_id || p.id_piloto || "",
+            driver_name: p.driver_name || p.nome || ""
+        })),
         atualizadoEmISO: agoraISO
     }), { merge: true });
 
-    const pilotosParaGerar = dados.pilotos.slice(0, 30);
+    const pilotosParaGerar = pilotosBase.slice(0, 30);
     let geradosPiloto = 0;
 
     for (const piloto of pilotosParaGerar) {
@@ -1123,7 +1395,7 @@ async function gerarHistoriasAposImportacao({ campeonato, etapa, dataCorrida, cf
         geradosPiloto += 1;
     }
 
-    return `📖 História IA gerada: história geral + ${geradosPiloto} piloto(s).`;
+    return `📖 História IA gerada e salva: história geral + ${geradosPiloto} piloto(s) selecionado(s).`;
 }
 
 function registrarHistoriaUICache(texto) {
@@ -1317,17 +1589,34 @@ async function fazerBackupEProcessar() {
             });
 
             let historiaMsg = "";
+            let pilotosSelecionadosHistoria = [];
+
+            if (cfg.tipo === "volta_a_volta") {
+                if (!IMPORTACAO_PREVIA.length && conteudoRaw) {
+                    const voltas = extrairVoltaAVoltaHTMLTexto(conteudoRaw, file.name);
+                    montarImportacaoPreviaVoltaAVolta(voltas, campeonato, true);
+                }
+
+                pilotosSelecionadosHistoria = IMPORTACAO_PREVIA
+                    .filter(i => i.checked && !i.conflitoId && !i.foraDoCampeonato)
+                    .sort((a, b) => String(a.driver_name || "").localeCompare(String(b.driver_name || "")));
+            }
 
             try {
-                historiaMsg = await gerarHistoriasAposImportacao({
-                    campeonato,
-                    etapa,
-                    dataCorrida,
-                    cfg,
-                    conteudoVoltaAtual: cfg.tipo === "volta_a_volta" ? conteudoRaw : "",
-                    nomeArquivoAtual: file.name,
-                    status
-                });
+                if (cfg.tipo === "volta_a_volta" && obterConfigHistoriaIAImportacao().gerar && !pilotosSelecionadosHistoria.length) {
+                    historiaMsg = "⚠️ Arquivo salvo, mas nenhuma história individual foi gerada porque nenhum piloto do campeonato foi selecionado.";
+                } else {
+                    historiaMsg = await gerarHistoriasAposImportacao({
+                        campeonato,
+                        etapa,
+                        dataCorrida,
+                        cfg,
+                        conteudoVoltaAtual: cfg.tipo === "volta_a_volta" ? conteudoRaw : "",
+                        nomeArquivoAtual: file.name,
+                        status,
+                        pilotosSelecionadosHistoria: cfg.tipo === "volta_a_volta" ? pilotosSelecionadosHistoria : null
+                    });
+                }
             } catch (historiaErro) {
                 console.error(historiaErro);
                 historiaMsg = `⚠️ Arquivo salvo, mas a história IA falhou: ${historiaErro.message || historiaErro}`;
@@ -1601,6 +1890,16 @@ function recalcularPreviewImportacao(campeonato, exibirHint = false, calcularPon
         });
 
         IMPORTACAO_PREVIA_GERADA = true;
+    } else if (tipoArquivo === "volta_a_volta") {
+        IMPORTACAO_PREVIA.forEach(item => {
+            item.posicao_final2 = 0;
+            item.posCampeonato = 0;
+            item.pontos = 0;
+            item.melhor_tempo_ponto = 0;
+            item.origemPontuacao = "História individual";
+        });
+
+        IMPORTACAO_PREVIA_GERADA = true;
     } else {
         IMPORTACAO_PREVIA.forEach(item => {
             item.posicao_final2 = 0;
@@ -1635,8 +1934,14 @@ function recalcularPreviewImportacao(campeonato, exibirHint = false, calcularPon
         }
     }
 
-    const titulo = cfg?.tipo === "classificacao" ? "Classificação" : "Resultado Final";
-    const tituloEtapa = IMPORTACAO_PREVIA_GERADA ? "Prévia de Importação" : "Seleção de Pilotos";
+    const titulo = cfg?.tipo === "classificacao"
+        ? "Classificação"
+        : cfg?.tipo === "volta_a_volta"
+            ? "Volta a volta / História IA"
+            : "Resultado Final";
+    const tituloEtapa = cfg?.tipo === "volta_a_volta"
+        ? "Seleção de Pilotos para História"
+        : IMPORTACAO_PREVIA_GERADA ? "Prévia de Importação" : "Seleção de Pilotos";
 
     let h = `<h3>${tituloEtapa} — ${htmlEscape(titulo)}</h3>`;
 
@@ -1644,23 +1949,39 @@ function recalcularPreviewImportacao(campeonato, exibirHint = false, calcularPon
         h += "<p class='muted'>Nenhum piloto identificado no arquivo.</p>";
     }
 
-    h += `
-        <div style="max-width:100%; overflow:auto;">
-            <table>
-                <tr>
-                    <th>Importar?</th>
-                    <th>driver_id</th>
-                    <th>driver_name</th>
-                    <th>Pos. geral</th>
-                    <th>Pos. importação</th>
-                    <th>Pontos</th>
-                    <th>Melhor tempo?</th>
-                    <th>Kart</th>
-                    <th>Melhor tempo</th>
-                    <th>Voltas</th>
-                    <th>Status</th>
-                </tr>
-    `;
+    if (tipoArquivo === "volta_a_volta") {
+        h += `
+            <div style="max-width:100%; overflow:auto;">
+                <table>
+                    <tr>
+                        <th>Gerar história?</th>
+                        <th>driver_id</th>
+                        <th>driver_name</th>
+                        <th>Kart</th>
+                        <th>Melhor volta no arquivo</th>
+                        <th>Voltas no arquivo</th>
+                        <th>Status</th>
+                    </tr>
+        `;
+    } else {
+        h += `
+            <div style="max-width:100%; overflow:auto;">
+                <table>
+                    <tr>
+                        <th>Importar?</th>
+                        <th>driver_id</th>
+                        <th>driver_name</th>
+                        <th>Pos. geral</th>
+                        <th>Pos. importação</th>
+                        <th>Pontos</th>
+                        <th>Melhor tempo?</th>
+                        <th>Kart</th>
+                        <th>Melhor tempo</th>
+                        <th>Voltas</th>
+                        <th>Status</th>
+                    </tr>
+        `;
+    }
 
     IMPORTACAO_PREVIA.forEach((i, idx) => {
         const disabled = i.conflitoId ? "disabled" : "";
@@ -1668,29 +1989,51 @@ function recalcularPreviewImportacao(campeonato, exibirHint = false, calcularPon
         const pontosCalculados = i.pontos || i.pontos === 0 ? i.pontos : "-";
         const melhorTempoPonto = Number(i.melhor_tempo_ponto || 0);
 
-        h += `
-            <tr>
-                <td>
-                    <input
-                        type="checkbox"
-                        id="imp_chk_${idx}"
-                        ${i.checked ? "checked" : ""}
-                        ${disabled}
-                        onchange="toggleSelecionadoImport(${idx})"
-                    >
-                </td>
-                <td>${htmlEscape(i.driver_id || "-")}</td>
-                <td>${htmlEscape(i.driver_name || "-")}</td>
-                <td>${htmlEscape(i.posicao_final || i.pos || "-")}</td>
-                <td>${posicaoCalculada}</td>
-                <td>${pontosCalculados}</td>
-                <td>${melhorTempoPonto}</td>
-                <td>${htmlEscape(i.kart_numero || "-")}</td>
-                <td>${htmlEscape(i.melhor_tempo || "-")}</td>
-                <td>${htmlEscape(i.voltas || "-")}</td>
-                <td>${htmlEscape(i.status)}</td>
-            </tr>
-        `;
+        if (tipoArquivo === "volta_a_volta") {
+            h += `
+                <tr>
+                    <td>
+                        <input
+                            type="checkbox"
+                            id="imp_chk_${idx}"
+                            ${i.checked ? "checked" : ""}
+                            ${disabled}
+                            onchange="toggleSelecionadoImport(${idx})"
+                        >
+                    </td>
+                    <td>${htmlEscape(i.driver_id || "-")}</td>
+                    <td>${htmlEscape(i.driver_name || "-")}</td>
+                    <td>${htmlEscape(i.kart_numero || "-")}</td>
+                    <td>${htmlEscape(i.melhor_tempo || "-")}</td>
+                    <td>${htmlEscape(i.voltas || "-")}</td>
+                    <td>${htmlEscape(i.status)}</td>
+                </tr>
+            `;
+        } else {
+            h += `
+                <tr>
+                    <td>
+                        <input
+                            type="checkbox"
+                            id="imp_chk_${idx}"
+                            ${i.checked ? "checked" : ""}
+                            ${disabled}
+                            onchange="toggleSelecionadoImport(${idx})"
+                        >
+                    </td>
+                    <td>${htmlEscape(i.driver_id || "-")}</td>
+                    <td>${htmlEscape(i.driver_name || "-")}</td>
+                    <td>${htmlEscape(i.posicao_final || i.pos || "-")}</td>
+                    <td>${posicaoCalculada}</td>
+                    <td>${pontosCalculados}</td>
+                    <td>${melhorTempoPonto}</td>
+                    <td>${htmlEscape(i.kart_numero || "-")}</td>
+                    <td>${htmlEscape(i.melhor_tempo || "-")}</td>
+                    <td>${htmlEscape(i.voltas || "-")}</td>
+                    <td>${htmlEscape(i.status)}</td>
+                </tr>
+            `;
+        }
     });
 
     h += `
@@ -1705,6 +2048,14 @@ function recalcularPreviewImportacao(campeonato, exibirHint = false, calcularPon
                     Cálculo feito apenas com os pilotos marcados.
                     Selecionados: ${selecionadosOrdenados.length}.
                     O campo "Melhor tempo?" recebe 1 para o menor Melhor Tempo entre os selecionados e 0 para os demais.
+                </p>
+            `;
+        } else if (tipoArquivo === "volta_a_volta") {
+            h += `
+                <p class='hint'>
+                    Somente pilotos vinculados ao campeonato aparecem aqui.
+                    Os marcados receberão história individual quando você salvar o Volta a volta com a opção de IA ligada.
+                    O arquivo Volta a volta também será usado para atualizar a história geral da corrida.
                 </p>
             `;
         } else {
@@ -3264,4 +3615,5 @@ function toggleHistoricoLinhaFirestore(idx) {
     row.dataset.open = "1";
 }
 
+inicializarPreviewVoltaAVoltaJS();
 fetchData();

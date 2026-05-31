@@ -316,13 +316,27 @@ async def ler_arquivo_importacao(event) -> None:
             window.IMPORTACAO_PYSCRIPT_JSON = ""
             return
 
+        nome_arquivo = str(file.name)
+
+        if tipo_arquivo == "volta_a_volta":
+            LAST_DF = None
+            window.IMPORTACAO_PYSCRIPT_JSON = ""
+            set_html("pyStatus", f"⏳ Lendo {nome_arquivo} para seleção de pilotos da história...")
+            html = await get_text_from_file(file)
+
+            if hasattr(window, "prepararPreviewVoltaAVoltaPyScript"):
+                window.prepararPreviewVoltaAVoltaPyScript(html, nome_arquivo)
+            else:
+                set_html("pyStatus", "✅ Volta a volta lido. A seleção será montada pelo JavaScript.")
+
+            return
+
         if tipo_arquivo not in {"resultado_final", "classificacao"}:
             LAST_DF = None
             window.IMPORTACAO_PYSCRIPT_JSON = ""
-            set_html("pyStatus", "ℹ️ Este tipo de arquivo será salvo sem prévia de pilotos.")
+            set_html("pyStatus", "ℹ️ Selecione Resultado final, Classificação ou Volta a volta.")
             return
 
-        nome_arquivo = str(file.name)
         set_html("pyStatus", f"⏳ Lendo {nome_arquivo} com PyScript/Python...")
 
         html = await get_text_from_file(file)
@@ -346,7 +360,7 @@ def inicializar() -> None:
         return
 
     add_event_listener(input_importacao, "change", ler_arquivo_importacao)
-    set_html("pyStatus", "✅ PyScript carregado. Selecione Resultado final ou Classificação e escolha o arquivo para liberar a lista de importação abaixo.")
+    set_html("pyStatus", "✅ PyScript carregado. Selecione Resultado final, Classificação ou Volta a volta e escolha o arquivo.")
 
 
 inicializar()
