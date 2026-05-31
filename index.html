@@ -107,6 +107,15 @@
         <label class="file-label" for="fileImportacaoUnico" id="labelFileImportacao">Arquivo</label>
         <input type="file" id="fileImportacaoUnico" accept=".html,.htm,.xml,.pdf">
 
+        <label class="file-label">História da corrida com IA</label>
+        <label style="display:flex; align-items:center; gap:8px; margin:8px 0; color:#fff; font-size:13px;">
+            <input type="checkbox" id="imp_gerar_historia_ia" style="width:auto; margin:0;">
+            Gerar história geral e história por piloto ao salvar/importar
+        </label>
+        <input type="password" id="imp_gemini_key" placeholder="Chave API Gemini — usada só no navegador, não é salva no Firestore" autocomplete="off">
+        <input type="text" id="imp_gemini_model" value="gemini-2.5-flash" placeholder="Modelo Gemini">
+        <p class="hint">Em GitHub Pages, não coloque a chave da IA fixa no código. Informe a chave neste campo apenas quando quiser gerar a história.</p>
+
         <div id="pyPreviewCard" class="py-preview-card">
             <h3>🐍 Leitura do arquivo</h3>
             <p class="hint">O Python lê o arquivo no navegador e envia os dados para a lista única de importação abaixo.</p>

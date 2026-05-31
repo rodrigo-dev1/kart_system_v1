@@ -37,6 +37,7 @@ let IMPORTACAO_PREVIA_GERADA = false;
 let RANKING_FIRESTORE_CACHE = [];
 let RANKING_ABA_ATUAL = "pilotos";
 let RANKING_CORRIDA_ABA_ATUAL = "corrida";
+let HISTORIAS_UI_CACHE = {};
 
 function pedirSenhaAdmin() {
     return new Promise(resolve => {
@@ -646,6 +647,536 @@ function selectEndFirebasePayload(item, contexto) {
     });
 }
 
+
+function obterConfigHistoriaIAImportacao() {
+    const gerar = !!document.getElementById("imp_gerar_historia_ia")?.checked;
+    const apiKey = String(document.getElementById("imp_gemini_key")?.value || "").trim();
+    const modelo = String(document.getElementById("imp_gemini_model")?.value || "gemini-2.5-flash").trim() || "gemini-2.5-flash";
+
+    return {
+        gerar,
+        apiKey,
+        modelo
+    };
+}
+
+function normalizarNomeComparacao(valor) {
+    return String(valor || "")
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .replace(/\s+/g, " ")
+        .trim()
+        .toUpperCase();
+}
+
+function textoSeguroHistoria(valor, fallback = "-") {
+    const texto = String(valor ?? "").trim();
+    return texto || fallback;
+}
+
+function formatarNumeroHistoria(valor, casas = 3) {
+    const n = Number(valor);
+    if (!Number.isFinite(n)) return "-";
+    return n.toFixed(casas);
+}
+
+function extrairPilotoHeaderVoltaAVolta(texto) {
+    const limpo = String(texto || "").replace(/\s+/g, " ").trim();
+    const match = limpo.match(/^(\d+)\s*-\s*\[(\d+)\]\s*(.*?)\s*-\s*(.*)$/);
+
+    if (match) {
+        return {
+            kart_numero: match[1],
+            driver_id: match[2],
+            driver_name: match[3].trim(),
+            classe: match[4].trim(),
+            piloto_original: limpo
+        };
+    }
+
+    const matchSemClasse = limpo.match(/^(\d+)\s*-\s*\[(\d+)\]\s*(.*)$/);
+
+    if (matchSemClasse) {
+        return {
+            kart_numero: matchSemClasse[1],
+            driver_id: matchSemClasse[2],
+            driver_name: matchSemClasse[3].trim(),
+            classe: "",
+            piloto_original: limpo
+        };
+    }
+
+    const matchSomenteId = limpo.match(/\[(\d+)\]\s*(.*)$/);
+
+    return {
+        kart_numero: "",
+        driver_id: matchSomenteId ? matchSomenteId[1] : "",
+        driver_name: matchSomenteId ? matchSomenteId[2].trim() : limpo,
+        classe: "",
+        piloto_original: limpo
+    };
+}
+
+function extrairVoltaAVoltaHTMLTexto(html, nomeArquivo = "") {
+    const conteudo = String(html || "");
+    if (!conteudo.trim()) return [];
+
+    const doc = new DOMParser().parseFromString(conteudo, "text/html");
+    const tabela = doc.querySelector("table.points") || doc.querySelector("table");
+
+    if (!tabela) return [];
+
+    const rows = Array.from(tabela.querySelectorAll("tr"));
+    const dados = [];
+    let pilotoAtual = null;
+
+    rows.slice(1).forEach(row => {
+        const cells = Array.from(row.querySelectorAll("td"));
+
+        if (cells.length === 1 && cells[0].hasAttribute("colspan")) {
+            pilotoAtual = extrairPilotoHeaderVoltaAVolta(cells[0].textContent || "");
+            return;
+        }
+
+        if (!pilotoAtual || cells.length !== 10) return;
+
+        const valores = cells.map(cell => String(cell.textContent || "").trim());
+
+        dados.push({
+            arquivo_origem: nomeArquivo,
+            piloto: pilotoAtual.piloto_original,
+            driver_id: pilotoAtual.driver_id,
+            driver_name: pilotoAtual.driver_name,
+            kart_numero: pilotoAtual.kart_numero,
+            classe: pilotoAtual.classe,
+            hora: valores[0],
+            volta: valores[1],
+            volta_lider: valores[2],
+            tempo_volta: valores[3],
+            velocidade: valores[4],
+            sfspd: valores[5],
+            sfspd_tm: valores[6],
+            s1: valores[7],
+            s2: valores[8],
+            s3: valores[9],
+            tempo_volta_segundos: tempoParaSegundosJS(valores[3])
+        });
+    });
+
+    return dados;
+}
+
+function pilotoChaveHistoria(item) {
+    const driverId = String(item?.driver_id || item?.id_piloto || "").trim();
+    if (driverId) return `id:${driverId}`;
+    return `nome:${normalizarNomeComparacao(item?.driver_name || item?.nome || item?.piloto || "")}`;
+}
+
+function mesmoPilotoHistoria(a, b) {
+    const idA = String(a?.driver_id || a?.id_piloto || "").trim();
+    const idB = String(b?.driver_id || b?.id_piloto || "").trim();
+
+    if (idA && idB) return idA === idB;
+
+    const nomeA = normalizarNomeComparacao(a?.driver_name || a?.nome || a?.piloto || "");
+    const nomeB = normalizarNomeComparacao(b?.driver_name || b?.nome || b?.piloto || "");
+
+    return !!nomeA && !!nomeB && nomeA === nomeB;
+}
+
+function ordenarPorPosicaoHistoria(rows) {
+    return [...(rows || [])].sort((a, b) =>
+        Number(obterPosicaoExibicaoRankingCorrida(a) || 999999) - Number(obterPosicaoExibicaoRankingCorrida(b) || 999999) ||
+        String(a.driver_name || "").localeCompare(String(b.driver_name || ""))
+    );
+}
+
+function linhaResumoResultadoHistoria(row, tipo) {
+    const pos = obterPosicaoExibicaoRankingCorrida(row);
+    const nome = row.driver_name || row.nome || row.piloto || "-";
+    const melhor = row.melhor_tempo || "-";
+    const total = row.total_tempo || "-";
+    const pontos = row.pontos ?? "-";
+    const bonus = Number(row.melhor_tempo_ponto || 0);
+    const kart = row.kart_numero || row.kart_number || row.kart || "-";
+
+    if (tipo === "classificacao") {
+        return `P${pos} | ${nome} | melhor volta ${melhor} | kart ${kart} | bônus MV ${bonus}`;
+    }
+
+    return `P${pos} | ${nome} | total ${total} | melhor volta ${melhor} | pontos ${pontos} | bônus MV ${bonus} | kart ${kart}`;
+}
+
+function resumirVoltasPilotoHistoria(voltas, limiteLinhas = 18) {
+    const linhas = [...(voltas || [])].sort((a, b) => Number(a.volta || 0) - Number(b.volta || 0));
+
+    if (!linhas.length) return "Sem volta a volta importado para este piloto.";
+
+    const tempos = linhas
+        .map(v => Number(v.tempo_volta_segundos))
+        .filter(v => Number.isFinite(v) && v > 0);
+
+    const melhor = tempos.length ? Math.min(...tempos) : null;
+    const pior = tempos.length ? Math.max(...tempos) : null;
+    const media = tempos.length ? tempos.reduce((acc, v) => acc + v, 0) / tempos.length : null;
+
+    const header = [
+        `Voltas registradas: ${linhas.length}`,
+        `Melhor volta no volta a volta: ${melhor !== null ? formatarNumeroHistoria(melhor) + "s" : "-"}`,
+        `Pior volta: ${pior !== null ? formatarNumeroHistoria(pior) + "s" : "-"}`,
+        `Média aproximada: ${media !== null ? formatarNumeroHistoria(media) + "s" : "-"}`
+    ].join(" | ");
+
+    const detalhes = linhas.slice(0, limiteLinhas).map(v =>
+        `V${textoSeguroHistoria(v.volta)}: ${textoSeguroHistoria(v.tempo_volta)} | S1 ${textoSeguroHistoria(v.s1)} | S2 ${textoSeguroHistoria(v.s2)} | S3 ${textoSeguroHistoria(v.s3)} | Vel ${textoSeguroHistoria(v.velocidade)}`
+    ).join("\n");
+
+    const restante = linhas.length > limiteLinhas
+        ? `\n... ${linhas.length - limiteLinhas} volta(s) omitida(s) para reduzir o prompt.`
+        : "";
+
+    return `${header}\n${detalhes}${restante}`;
+}
+
+function montarPilotosParaHistoria(corrida, classificacao, voltas) {
+    const mapa = new Map();
+
+    const adicionar = item => {
+        const key = pilotoChaveHistoria(item);
+        const nome = item?.driver_name || item?.nome || item?.piloto || "";
+
+        if (!nome && !String(item?.driver_id || item?.id_piloto || "").trim()) return;
+
+        if (!mapa.has(key)) {
+            mapa.set(key, {
+                driver_id: String(item?.driver_id || item?.id_piloto || "").trim(),
+                driver_name: nome || "-"
+            });
+        }
+    };
+
+    (corrida || []).forEach(adicionar);
+    (classificacao || []).forEach(adicionar);
+    (voltas || []).forEach(adicionar);
+
+    return Array.from(mapa.values()).sort((a, b) => String(a.driver_name || "").localeCompare(String(b.driver_name || "")));
+}
+
+function montarContextoGeralHistoria({ campeonato, etapa, dataCorrida, corrida, classificacao, voltas }) {
+    const pilotos = montarPilotosParaHistoria(corrida, classificacao, voltas);
+    const idsPilotos = new Set(pilotos.map(p => pilotoChaveHistoria(p)));
+    const voltasFiltradas = (voltas || []).filter(v => idsPilotos.has(pilotoChaveHistoria(v)));
+
+    const linhasResultado = ordenarPorPosicaoHistoria(corrida)
+        .map(row => linhaResumoResultadoHistoria(row, "resultado"))
+        .join("\n") || "Sem resultado final importado.";
+
+    const linhasClassificacao = ordenarPorPosicaoHistoria(classificacao)
+        .map(row => linhaResumoResultadoHistoria(row, "classificacao"))
+        .join("\n") || "Sem classificação importada.";
+
+    const resumoVoltas = pilotos.map(piloto => {
+        const voltasPiloto = voltasFiltradas.filter(v => mesmoPilotoHistoria(v, piloto));
+        return `\n### ${piloto.driver_name}\n${resumirVoltasPilotoHistoria(voltasPiloto, 10)}`;
+    }).join("\n");
+
+    return `CAMPEONATO: ${campeonato}\nETAPA: ${etapa}\nDATA: ${formatarDataBR(dataCorrida)}\n\nRESULTADO FINAL:\n${linhasResultado}\n\nCLASSIFICAÇÃO / TOMADA:\n${linhasClassificacao}\n\nVOLTA A VOLTA RESUMIDO:${resumoVoltas || "\nSem volta a volta importado."}`;
+}
+
+function montarContextoPilotoHistoria({ piloto, corrida, classificacao, voltas }) {
+    const resultado = (corrida || []).find(row => mesmoPilotoHistoria(row, piloto));
+    const tomada = (classificacao || []).find(row => mesmoPilotoHistoria(row, piloto));
+    const voltasPiloto = (voltas || []).filter(row => mesmoPilotoHistoria(row, piloto));
+
+    return `PILOTO: ${piloto.driver_name}\n\nRESULTADO FINAL:\n${resultado ? linhaResumoResultadoHistoria(resultado, "resultado") : "Sem resultado final importado para este piloto."}\n\nCLASSIFICAÇÃO / TOMADA:\n${tomada ? linhaResumoResultadoHistoria(tomada, "classificacao") : "Sem classificação importada para este piloto."}\n\nVOLTAS CORRIDA:\n${resumirVoltasPilotoHistoria(voltasPiloto, 28)}`;
+}
+
+function montarPromptHistoriaGeral(contexto) {
+    return `Você é um analista de kart. Faça uma análise GERAL e minimalista retornando apenas a história geral dos principais pontos de como foi a corrida. Leve em consideração Velocidade Pura, Melhor Conjunto e Potencial. Use tom direto, sem exageros e sem inventar dados que não estejam no contexto.\n\nDADOS DA CORRIDA:\n${contexto}`;
+}
+
+function montarPromptHistoriaPiloto(nomePiloto, contexto) {
+    return `Você é um analista de telemetria de Kart profissional.\nSua missão é gerar um relatório de desempenho seguindo RIGOROSAMENTE o modelo abaixo.\nNão use negritos em excesso, não mude os títulos e mantenha o tom técnico e direto.\n\n--- MODELO A SER SEGUIDO ---\nNome do Piloto\n\nResultado\n[Nome] fez P[X] na tomada, com [Tempo], e terminou a prova com [X] voltas e melhor volta de [Tempo].\n\nLeitura do desempenho\n[Análise resumida do início, meio e fim da prova].\n\nPontos positivos:\n* Item 1\n* Item 2\n\nPontos de atenção:\n* Item 1\n* Item 2\n\nDiagnóstico\n[Resumo técnico do que impediu um resultado melhor].\n\nPróximo foco\n[Dica prática para a próxima corrida].\n--- FIM DO MODELO ---\n\nDADOS REAIS PARA ANALISAR AGORA:\n${contexto}\n\nGere o relatório para o piloto ${nomePiloto} seguindo exatamente a estrutura do modelo acima. Se algum dado estiver ausente, mencione de forma curta que a informação não foi importada.`;
+}
+
+async function chamarGeminiHistoria({ apiKey, modelo, prompt, temperature = 0.2, maxOutputTokens = 1600 }) {
+    const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(modelo)}:generateContent?key=${encodeURIComponent(apiKey)}`;
+
+    const response = await fetch(endpoint, {
+        method: "POST",
+        headers: {
+            "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+            contents: [
+                {
+                    role: "user",
+                    parts: [{ text: prompt }]
+                }
+            ],
+            generationConfig: {
+                temperature,
+                maxOutputTokens
+            }
+        })
+    });
+
+    if (!response.ok) {
+        const erro = await response.text();
+        throw new Error(`Gemini retornou erro ${response.status}: ${erro.slice(0, 500)}`);
+    }
+
+    const data = await response.json();
+    const texto = (data.candidates || [])
+        .flatMap(c => c?.content?.parts || [])
+        .map(part => part.text || "")
+        .join("\n")
+        .trim();
+
+    if (!texto) throw new Error("Gemini não retornou texto para a história.");
+
+    return texto;
+}
+
+async function buscarVoltasDaCorridaParaHistoria({ campRef, etapa, dataCorrida, conteudoVoltaAtual = "", nomeArquivoAtual = "" }) {
+    const voltas = [];
+
+    if (conteudoVoltaAtual) {
+        voltas.push(...extrairVoltaAVoltaHTMLTexto(conteudoVoltaAtual, nomeArquivoAtual));
+    }
+
+    try {
+        const voltaSnapshot = await campRef.collection("volta_a_volta").where("dataCorrida", "==", dataCorrida).get();
+
+        voltaSnapshot.forEach(doc => {
+            const data = doc.data() || {};
+
+            if (String(data.etapa || "") !== String(etapa || "")) return;
+            if (!data.conteudo) return;
+
+            voltas.push(...extrairVoltaAVoltaHTMLTexto(data.conteudo, data.nomeArquivo || doc.id));
+        });
+    } catch (e) {
+        console.warn("Não foi possível buscar volta a volta salvo para história:", e);
+    }
+
+    const vistos = new Set();
+
+    return voltas.filter(v => {
+        const key = [v.driver_id, normalizarNomeComparacao(v.driver_name), v.volta, v.tempo_volta, v.hora].join("|");
+        if (vistos.has(key)) return false;
+        vistos.add(key);
+        return true;
+    });
+}
+
+async function coletarDadosCorridaParaHistoria({ campeonato, etapa, dataCorrida, conteudoVoltaAtual = "", nomeArquivoAtual = "" }) {
+    const { campeonatoDocId, campRef } = await prepararDocumentoCampeonato(campeonato);
+    const resultadoDocId = getResultadoFinalDocId(etapa, dataCorrida);
+    const resultadoDocRef = campRef.collection("resultado_final").doc(resultadoDocId);
+
+    const [resultadoDoc, corridaSnapshot, classificacaoSnapshot, voltas] = await Promise.all([
+        resultadoDocRef.get(),
+        resultadoDocRef.collection("pilotos_resultado").get(),
+        resultadoDocRef.collection("classificacao").get(),
+        buscarVoltasDaCorridaParaHistoria({ campRef, etapa, dataCorrida, conteudoVoltaAtual, nomeArquivoAtual })
+    ]);
+
+    const corrida = corridaSnapshot.docs.map(doc => ({ docId: doc.id, ...(doc.data() || {}) }));
+    const classificacao = classificacaoSnapshot.docs.map(doc => ({ docId: doc.id, ...(doc.data() || {}) }));
+    const pilotos = montarPilotosParaHistoria(corrida, classificacao, voltas);
+
+    return {
+        campeonatoDocId,
+        resultadoDocId,
+        resultadoDocRef,
+        resultadoDoc: resultadoDoc.exists ? (resultadoDoc.data() || {}) : {},
+        corrida,
+        classificacao,
+        voltas,
+        pilotos
+    };
+}
+
+async function salvarHistoriaPilotoFirestore({ resultadoDocRef, piloto, historia, modelo, agoraISO }) {
+    const itemId = normalizarDocId(piloto.driver_id || piloto.driver_name || "piloto");
+    const payload = toFirestoreSafe({
+        historia_piloto: historia,
+        historia_ia_piloto: historia,
+        historiaPilotoAtualizadaEmISO: agoraISO,
+        historiaModelo: modelo
+    });
+
+    const corridaRef = resultadoDocRef.collection("pilotos_resultado").doc(itemId);
+    const classificacaoRef = resultadoDocRef.collection("classificacao").doc(itemId);
+
+    const [corridaDoc, classificacaoDoc] = await Promise.all([
+        corridaRef.get(),
+        classificacaoRef.get()
+    ]);
+
+    const writes = [];
+
+    if (corridaDoc.exists) writes.push(corridaRef.set(payload, { merge: true }));
+    if (classificacaoDoc.exists) writes.push(classificacaoRef.set(payload, { merge: true }));
+
+    if (!writes.length) {
+        writes.push(corridaRef.set(toFirestoreSafe({
+            driver_id: piloto.driver_id || "",
+            id_piloto: piloto.driver_id || "",
+            driver_name: piloto.driver_name || "-",
+            ...payload
+        }), { merge: true }));
+    }
+
+    await Promise.all(writes);
+}
+
+async function gerarHistoriasAposImportacao({ campeonato, etapa, dataCorrida, cfg, conteudoVoltaAtual = "", nomeArquivoAtual = "", status = null }) {
+    const config = obterConfigHistoriaIAImportacao();
+
+    if (!config.gerar) return "";
+
+    if (!config.apiKey) {
+        return "⚠️ História IA não gerada: informe a chave Gemini no campo de importação.";
+    }
+
+    if (status) status.innerHTML = "⏳ Coletando dados da corrida para gerar história com IA...";
+
+    const dados = await coletarDadosCorridaParaHistoria({ campeonato, etapa, dataCorrida, conteudoVoltaAtual, nomeArquivoAtual });
+
+    if (!dados.pilotos.length) {
+        return "⚠️ História IA não gerada: não encontrei pilotos na corrida, classificação ou volta a volta.";
+    }
+
+    const agoraISO = new Date().toISOString();
+    const contextoGeral = montarContextoGeralHistoria({
+        campeonato,
+        etapa,
+        dataCorrida,
+        corrida: dados.corrida,
+        classificacao: dados.classificacao,
+        voltas: dados.voltas
+    });
+
+    if (status) status.innerHTML = "⏳ Gerando história geral da corrida com IA...";
+
+    const historiaGeral = await chamarGeminiHistoria({
+        apiKey: config.apiKey,
+        modelo: config.modelo,
+        prompt: montarPromptHistoriaGeral(contextoGeral),
+        temperature: 0.2,
+        maxOutputTokens: 1200
+    });
+
+    await dados.resultadoDocRef.set(toFirestoreSafe({
+        campeonato,
+        campeonato_id: dados.campeonatoDocId,
+        etapa: Number(etapa),
+        dataCorrida,
+        resultadoDocId: dados.resultadoDocId,
+        historia_geral: historiaGeral,
+        historia_ia_geral: historiaGeral,
+        historiaCorrida: {
+            geral: historiaGeral,
+            modelo: config.modelo,
+            origem: "gemini",
+            atualizadoEmISO: agoraISO,
+            tipoArquivoDisparador: cfg?.tipo || ""
+        },
+        historiaAtualizadaEmISO: agoraISO,
+        historiaModelo: config.modelo,
+        atualizadoEmISO: agoraISO
+    }), { merge: true });
+
+    const pilotosParaGerar = dados.pilotos.slice(0, 30);
+    let geradosPiloto = 0;
+
+    for (const piloto of pilotosParaGerar) {
+        if (status) {
+            status.innerHTML = `⏳ Gerando história do piloto ${htmlEscape(piloto.driver_name || "-")} (${geradosPiloto + 1}/${pilotosParaGerar.length})...`;
+        }
+
+        const contextoPiloto = montarContextoPilotoHistoria({
+            piloto,
+            corrida: dados.corrida,
+            classificacao: dados.classificacao,
+            voltas: dados.voltas
+        });
+
+        const historiaPiloto = await chamarGeminiHistoria({
+            apiKey: config.apiKey,
+            modelo: config.modelo,
+            prompt: montarPromptHistoriaPiloto(piloto.driver_name || "Piloto", contextoPiloto),
+            temperature: 0.1,
+            maxOutputTokens: 1600
+        });
+
+        await salvarHistoriaPilotoFirestore({
+            resultadoDocRef: dados.resultadoDocRef,
+            piloto,
+            historia: historiaPiloto,
+            modelo: config.modelo,
+            agoraISO
+        });
+
+        geradosPiloto += 1;
+    }
+
+    return `📖 História IA gerada: história geral + ${geradosPiloto} piloto(s).`;
+}
+
+function registrarHistoriaUICache(texto) {
+    const id = `hist_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+    HISTORIAS_UI_CACHE[id] = String(texto || "").trim();
+    return id;
+}
+
+function abrirHistoriaModal(titulo, texto) {
+    const conteudo = String(texto || "").trim();
+
+    if (!conteudo) {
+        alert("História ainda não gerada para este item.");
+        return;
+    }
+
+    const overlay = document.createElement("div");
+    overlay.style.cssText = "position:fixed;inset:0;background:rgba(0,0,0,.72);z-index:99999;display:flex;align-items:center;justify-content:center;padding:16px;";
+
+    const modal = document.createElement("div");
+    modal.style.cssText = "width:100%;max-width:760px;max-height:82vh;overflow:auto;background:#1d2129;border:1px solid #394150;border-radius:14px;padding:16px;box-shadow:0 10px 40px rgba(0,0,0,.35);";
+
+    const h = document.createElement("h3");
+    h.style.cssText = "margin:0 0 10px 0;color:#ffeb3b;";
+    h.textContent = titulo || "História";
+
+    const pre = document.createElement("div");
+    pre.style.cssText = "white-space:pre-wrap;line-height:1.45;color:white;font-size:14px;";
+    pre.textContent = conteudo;
+
+    const btn = document.createElement("button");
+    btn.textContent = "FECHAR";
+    btn.style.cssText = "margin-top:14px;";
+    btn.addEventListener("click", () => overlay.remove());
+
+    modal.appendChild(h);
+    modal.appendChild(pre);
+    modal.appendChild(btn);
+    overlay.appendChild(modal);
+    overlay.addEventListener("click", ev => {
+        if (ev.target === overlay) overlay.remove();
+    });
+
+    document.body.appendChild(overlay);
+}
+
+function abrirHistoriaCache(id, titulo) {
+    abrirHistoriaModal(titulo || "História", HISTORIAS_UI_CACHE[id] || "");
+}
+
+window.abrirHistoriaCache = abrirHistoriaCache;
+window.abrirHistoriaModal = abrirHistoriaModal;
+
 async function salvarSelecionadosNoFirestore({ campeonato, etapa, dataCorrida, cfg, selecionados, nomeArquivo, backupId = "" }) {
     const { campeonatoDocId, campRef } = await prepararDocumentoCampeonato(campeonato);
 
@@ -785,11 +1316,29 @@ async function fazerBackupEProcessar() {
                 backupId: idUnico
             });
 
+            let historiaMsg = "";
+
+            try {
+                historiaMsg = await gerarHistoriasAposImportacao({
+                    campeonato,
+                    etapa,
+                    dataCorrida,
+                    cfg,
+                    conteudoVoltaAtual: cfg.tipo === "volta_a_volta" ? conteudoRaw : "",
+                    nomeArquivoAtual: file.name,
+                    status
+                });
+            } catch (historiaErro) {
+                console.error(historiaErro);
+                historiaMsg = `⚠️ Arquivo salvo, mas a história IA falhou: ${historiaErro.message || historiaErro}`;
+            }
+
             if (status) {
-                status.innerHTML = `✅ ${cfg.label} salvo no Firestore. Caminho: ${htmlEscape(caminho)}. Backup: ${htmlEscape(backupInfo.caminhoFirestore)}.`;
+                status.innerHTML = `✅ ${cfg.label} salvo no Firestore. Caminho: ${htmlEscape(caminho)}. Backup: ${htmlEscape(backupInfo.caminhoFirestore)}.${historiaMsg ? `<br>${htmlEscape(historiaMsg)}` : ""}`;
             }
 
             document.getElementById("fileImportacaoUnico").value = "";
+            await inicializarRankingFirestore();
             return;
         }
 
@@ -846,8 +1395,25 @@ async function fazerBackupEProcessar() {
             backupId: idUnico
         });
 
+        let historiaMsg = "";
+
+        try {
+            historiaMsg = await gerarHistoriasAposImportacao({
+                campeonato,
+                etapa,
+                dataCorrida,
+                cfg,
+                conteudoVoltaAtual: "",
+                nomeArquivoAtual: file.name,
+                status
+            });
+        } catch (historiaErro) {
+            console.error(historiaErro);
+            historiaMsg = `⚠️ Dados salvos, mas a história IA falhou: ${historiaErro.message || historiaErro}`;
+        }
+
         if (status) {
-            status.innerHTML = `✅ ${cfg.label} salvo no Firestore com ${selecionadosParaSalvar.length} piloto(s). Caminho: ${htmlEscape(saveInfo.caminhoFirestore)}.`;
+            status.innerHTML = `✅ ${cfg.label} salvo no Firestore com ${selecionadosParaSalvar.length} piloto(s). Caminho: ${htmlEscape(saveInfo.caminhoFirestore)}.${historiaMsg ? `<br>${htmlEscape(historiaMsg)}` : ""}`;
         }
 
         const btnConfirmar = document.getElementById("btnConfirmarImportacao");
@@ -1215,11 +1781,28 @@ async function confirmarImportacao() {
             nomeArquivo
         });
 
-        if (status) {
-            status.innerHTML = `✅ Importação concluída: ${selecionados.length} piloto(s) gravado(s) no Firestore. Caminho: ${htmlEscape(saveInfo.caminhoFirestore)}.`;
+        let historiaMsg = "";
+
+        try {
+            historiaMsg = await gerarHistoriasAposImportacao({
+                campeonato,
+                etapa,
+                dataCorrida: data,
+                cfg,
+                conteudoVoltaAtual: "",
+                nomeArquivoAtual: nomeArquivo,
+                status
+            });
+        } catch (historiaErro) {
+            console.error(historiaErro);
+            historiaMsg = `⚠️ Dados salvos, mas a história IA falhou: ${historiaErro.message || historiaErro}`;
         }
 
-        alert(`✅ Importação concluída com ${selecionados.length} piloto(s).`);
+        if (status) {
+            status.innerHTML = `✅ Importação concluída: ${selecionados.length} piloto(s) gravado(s) no Firestore. Caminho: ${htmlEscape(saveInfo.caminhoFirestore)}.${historiaMsg ? `<br>${htmlEscape(historiaMsg)}` : ""}`;
+        }
+
+        alert(`✅ Importação concluída com ${selecionados.length} piloto(s).${historiaMsg ? " História IA processada." : ""}`);
 
         const btnConfirmar = document.getElementById("btnConfirmarImportacao");
         if (btnConfirmar) btnConfirmar.style.display = "none";
@@ -2218,7 +2801,20 @@ function montarTabelaRankingCorrida(rows, tipoAba) {
             .filter(Boolean)
             .join("");
 
-        const conteudo = linhasDetalhe || '<tr><td colspan="2" class="muted">Sem detalhes adicionais.</td></tr>';
+        const historiaPiloto = row.historia_piloto || row.historia_ia_piloto || row.historiaPiloto || "";
+        const historiaId = registrarHistoriaUICache(historiaPiloto);
+        const linhaHistoria = `
+            <tr>
+                <td style="color:#aaa;">História</td>
+                <td>
+                    <button class="btn-view" onclick="event.stopPropagation(); abrirHistoriaCache('${historiaId}', 'História de ${htmlEscape(row.driver_name || 'piloto')}')">
+                        📖 Ver história
+                    </button>
+                </td>
+            </tr>
+        `;
+
+        const conteudo = (linhasDetalhe || '<tr><td colspan="2" class="muted">Sem detalhes adicionais.</td></tr>') + linhaHistoria;
         return `<tr id="ranking_corrida_det_${tipoAba}_${idx}" data-open="0" style="display:none; background:#151a22;"><td colspan="${colsResumo.length}"><table class="pyscript-table" style="margin:0; font-size:12px;"><tbody>${conteudo}</tbody></table></td></tr>`;
     };
 
@@ -2321,6 +2917,8 @@ async function renderRankingCorridaFirestore() {
         const tabela = tabCorridaAtiva
             ? montarTabelaRankingCorrida(corrida, "corrida")
             : montarTabelaRankingCorrida(classificacao, "classificacao");
+        const historiaGeral = etapaSelecionada.historia_geral || etapaSelecionada.historia_ia_geral || etapaSelecionada.historiaCorrida?.geral || "";
+        const historiaGeralId = registrarHistoriaUICache(historiaGeral);
 
         content.innerHTML = `
             <div class="form-card">
@@ -2346,6 +2944,7 @@ async function renderRankingCorridaFirestore() {
                 <div class="tabs" style="margin-top: 12px;">
                     <button id="rankingCorridaTabCorrida" class="tab-btn ${tabCorridaAtiva ? "active-tab" : ""}" onclick="trocarAbaRankingCorrida('corrida')">Corrida</button>
                     <button id="rankingCorridaTabClassificacao" class="tab-btn ${!tabCorridaAtiva ? "active-tab" : ""}" onclick="trocarAbaRankingCorrida('classificacao')">Classificação</button>
+                    <button class="tab-btn" onclick="abrirHistoriaCache('${historiaGeralId}', 'História geral da corrida')">História da corrida</button>
                 </div>
 
                 <div id="rankingCorridaTabela">${tabela}</div>
