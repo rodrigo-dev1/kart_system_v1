@@ -665,7 +665,7 @@ function selectEndFirebasePayload(item, contexto) {
 function obterConfigHistoriaIAImportacao() {
     const gerar = !!document.getElementById("imp_gerar_historia_ia")?.checked;
     const apiKey = String(document.getElementById("imp_gemini_key")?.value || "").trim();
-    const modelo = String(document.getElementById("imp_gemini_model")?.value || "gemini-2.5-flash").trim() || "gemini-2.5-flash";
+    const modelo = String(document.getElementById("imp_gemini_model")?.value || "gemini-2.5-flash-lite").trim() || "gemini-2.5-flash-lite";
 
     return {
         gerar,
