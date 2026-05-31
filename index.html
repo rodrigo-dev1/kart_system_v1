@@ -53,6 +53,9 @@
         .inline-actions button { width: auto; padding: 10px 12px; margin-top: 8px; }
         .table-fit { width: 100%; overflow-x: hidden; }
         .consulta-subcard { background: #151a22; border: 1px solid #394150; border-radius: 12px; padding: 12px; margin-top: 12px; }
+        .rank-corrida-head { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; align-items: end; }
+        .rank-info-card { background: #151a22; border: 1px solid #394150; border-radius: 12px; padding: 12px; }
+        .rank-info-card strong { display: block; margin-top: 4px; font-size: 16px; }
     </style>
 </head>
 <body>
@@ -62,7 +65,13 @@
 <div id="dash" class="section active">
     <h2>🏆 Ranking</h2>
     <div class="form-card">
-        <select id="filtro_rank_firebase_camp" onchange="renderRankingFirestore()"></select>
+        <select id="filtro_rank_firebase_camp" onchange="onCampeonatoRankingChange()"></select>
+
+        <div class="tabs" style="margin-top: 12px;">
+            <button id="rankTabPilotos" class="tab-btn active-tab" onclick="trocarAbaRanking('pilotos')">Pilotos</button>
+            <button id="rankTabCorrida" class="tab-btn" onclick="trocarAbaRanking('corrida')">Corrida</button>
+        </div>
+
         <div id="rankingFirestoreStatus" class="hint">Selecione um campeonato para carregar o ranking.</div>
     </div>
     <div id="rankingFirestoreContent"></div>

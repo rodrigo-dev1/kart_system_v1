@@ -35,6 +35,8 @@ let IMPORTACAO_PYSCRIPT_TIPO = "";
 let IMPORTACAO_PREVIA_GERADA = false;
 
 let RANKING_FIRESTORE_CACHE = [];
+let RANKING_ABA_ATUAL = "pilotos";
+let RANKING_CORRIDA_ABA_ATUAL = "corrida";
 
 function pedirSenhaAdmin() {
     return new Promise(resolve => {
@@ -2108,7 +2110,261 @@ async function buscarRankingFirestorePorCampeonato(campeonatoDocId) {
         );
 }
 
+
+function setRankingTabVisual() {
+    const tabPilotos = document.getElementById("rankTabPilotos");
+    const tabCorrida = document.getElementById("rankTabCorrida");
+
+    if (tabPilotos) tabPilotos.classList.toggle("active-tab", RANKING_ABA_ATUAL === "pilotos");
+    if (tabCorrida) tabCorrida.classList.toggle("active-tab", RANKING_ABA_ATUAL === "corrida");
+}
+
+function onCampeonatoRankingChange() {
+    RANKING_CORRIDA_ABA_ATUAL = "corrida";
+    renderRankingFirestore();
+}
+
+function trocarAbaRanking(aba) {
+    RANKING_ABA_ATUAL = aba === "corrida" ? "corrida" : "pilotos";
+    renderRankingFirestore();
+}
+
 async function renderRankingFirestore() {
+    setRankingTabVisual();
+
+    if (RANKING_ABA_ATUAL === "corrida") {
+        return renderRankingCorridaFirestore();
+    }
+
+    return renderRankingPilotosFirestore();
+}
+
+function obterCampoPrimeiroValor(obj, campos, fallback = "-") {
+    for (const campo of campos) {
+        const valor = obj?.[campo];
+
+        if (valor !== undefined && valor !== null && valor !== "") {
+            return valor;
+        }
+    }
+
+    return fallback;
+}
+
+function obterPosicaoExibicaoRankingCorrida(row) {
+    return obterCampoPrimeiroValor(
+        row,
+        ["posicao_geral_arquivo", "posicao_final", "posicao_final2", "posicao", "pos"],
+        "-"
+    );
+}
+
+function montarTabelaRankingCorrida(rows, tipoAba) {
+    const linhas = Array.isArray(rows) ? [...rows] : [];
+
+    if (!linhas.length) {
+        return `<p class="muted">Nenhum dado de ${tipoAba === "classificacao" ? "classificação" : "corrida"} encontrado para esta etapa.</p>`;
+    }
+
+    linhas.sort((a, b) =>
+        Number(obterPosicaoExibicaoRankingCorrida(a) || 999999) - Number(obterPosicaoExibicaoRankingCorrida(b) || 999999) ||
+        String(a.driver_name || "").localeCompare(String(b.driver_name || ""))
+    );
+
+    const colsResumo = tipoAba === "classificacao"
+        ? [["posicao", "Pos"], ["driver_name", "Piloto"], ["melhor_tempo", "Melhor volta"]]
+        : [["posicao", "Pos"], ["driver_name", "Piloto"], ["total_tempo", "T.Total"]];
+
+    const detalhesCorrida = [
+        [["melhor_tempo"], "Melhor Vlt"],
+        [["s1_melhor_vlt"], "S1 Melhor Vlt"],
+        [["s2_melhor_vlt"], "S2 Melhor Vlt"],
+        [["s3_melhor_vlt"], "S3 Melhor Vlt"],
+        [["sfspd_melhor_vlt"], "SFSpd Melhor Vlt"],
+        [["voltas"], "Voltas"],
+        [["kart_numero", "kart_number", "kart"], "Kart"],
+        [["pontos"], "Pts"],
+        [["melhor_tempo_ponto"], "Bônus MV"]
+    ];
+
+    const detalhesClassificacao = [
+        [["melhor_tempo"], "Melhor Vlt"],
+        [["s1_melhor_vlt"], "S1 Melhor Vlt"],
+        [["s2_melhor_vlt"], "S2 Melhor Vlt"],
+        [["s3_melhor_vlt"], "S3 Melhor Vlt"],
+        [["sfspd_melhor_vlt"], "SFSpd Melhor Vlt"],
+        [["total_tempo"], "T.Total"],
+        [["voltas"], "Voltas"],
+        [["kart_numero", "kart_number", "kart"], "Kart"],
+        [["pontos"], "Pts"],
+        [["melhor_tempo_ponto"], "Bônus MV"]
+    ];
+
+    const detalhes = tipoAba === "classificacao" ? detalhesClassificacao : detalhesCorrida;
+
+    const montarResumoCelula = (row, campo) => {
+        if (campo === "posicao") return htmlEscape(obterPosicaoExibicaoRankingCorrida(row));
+        if (campo === "driver_name") return htmlEscape(nomePilotoCurto(row.driver_name, row.driver_id || row.id_piloto));
+        return htmlEscape(obterCampoPrimeiroValor(row, [campo], "-"));
+    };
+
+    const montarDetalhesPiloto = (row, idx) => {
+        const linhasDetalhe = detalhes
+            .map(([campos, label]) => {
+                const valor = obterCampoPrimeiroValor(row, campos, "");
+                if (valor === undefined || valor === null || valor === "") return "";
+                return `<tr><td style="color:#aaa;">${htmlEscape(label)}</td><td>${htmlEscape(valor)}</td></tr>`;
+            })
+            .filter(Boolean)
+            .join("");
+
+        const conteudo = linhasDetalhe || '<tr><td colspan="2" class="muted">Sem detalhes adicionais.</td></tr>';
+        return `<tr id="ranking_corrida_det_${tipoAba}_${idx}" data-open="0" style="display:none; background:#151a22;"><td colspan="${colsResumo.length}"><table class="pyscript-table" style="margin:0; font-size:12px;"><tbody>${conteudo}</tbody></table></td></tr>`;
+    };
+
+    return `
+        <div class="table-fit">
+            <table class="pyscript-table">
+                <tr>${colsResumo.map(c => `<th>${c[1]}</th>`).join("")}</tr>
+                ${linhas.map((row, idx) => `
+                    <tr style="cursor:pointer;" onclick="toggleDetalheRankingCorrida('${tipoAba}', ${idx})">
+                        ${colsResumo.map(c => `<td>${montarResumoCelula(row, c[0])}</td>`).join("")}
+                    </tr>
+                    ${montarDetalhesPiloto(row, idx)}
+                `).join("")}
+            </table>
+        </div>
+    `;
+}
+
+function toggleDetalheRankingCorrida(tipoAba, idx) {
+    const detalhe = document.getElementById(`ranking_corrida_det_${tipoAba}_${idx}`);
+    if (!detalhe) return;
+
+    const aberto = detalhe.getAttribute("data-open") === "1";
+    detalhe.style.display = aberto ? "none" : "table-row";
+    detalhe.setAttribute("data-open", aberto ? "0" : "1");
+}
+
+function trocarAbaRankingCorrida(aba) {
+    RANKING_CORRIDA_ABA_ATUAL = aba === "classificacao" ? "classificacao" : "corrida";
+    renderRankingCorridaFirestore();
+}
+
+async function listarEtapasRankingCorrida(campeonatoDocId) {
+    const campRef = firestore.collection(COLLECTION_CAMPEONATOS).doc(campeonatoDocId);
+    const snapshot = await campRef.collection("resultado_final").get();
+
+    return snapshot.docs
+        .map(doc => ({
+            docId: doc.id,
+            ref: doc.ref,
+            ...(doc.data() || {})
+        }))
+        .sort((a, b) =>
+            Number(a.etapa || 0) - Number(b.etapa || 0) ||
+            String(a.dataCorrida || "").localeCompare(String(b.dataCorrida || "")) ||
+            String(a.docId || "").localeCompare(String(b.docId || ""))
+        );
+}
+
+async function renderRankingCorridaFirestore() {
+    const selectCampeonato = document.getElementById("filtro_rank_firebase_camp");
+    const content = document.getElementById("rankingFirestoreContent");
+    const status = document.getElementById("rankingFirestoreStatus");
+
+    if (!selectCampeonato || !content) return;
+
+    const campeonatoDocId = selectCampeonato.value;
+    const campeonatoNome = selectCampeonato.options[selectCampeonato.selectedIndex]?.text || "";
+
+    if (!campeonatoDocId) {
+        content.innerHTML = "";
+        if (status) status.innerHTML = "Selecione um campeonato para visualizar as corridas.";
+        return;
+    }
+
+    try {
+        if (status) status.innerHTML = `⏳ Carregando etapas de ${htmlEscape(campeonatoNome)}...`;
+
+        const etapaSelectAnterior = document.getElementById("ranking_corrida_etapa");
+        const etapaDocIdAnterior = etapaSelectAnterior?.value || "";
+
+        const etapas = await listarEtapasRankingCorrida(campeonatoDocId);
+
+        if (!etapas.length) {
+            content.innerHTML = "<p class='muted'>Nenhuma etapa encontrada para este campeonato no Firestore.</p>";
+            if (status) status.innerHTML = "Nenhuma etapa encontrada.";
+            return;
+        }
+
+        const etapaSelecionada = etapas.find(e => e.docId === etapaDocIdAnterior) || etapas[0];
+        const dataCorrida = etapaSelecionada.dataCorrida || "";
+        const etapaLabel = etapaSelecionada.etapa || etapaSelecionada.docId || "-";
+
+        const optionsEtapas = etapas.map(etapa => {
+            const data = etapa.dataCorrida ? ` — ${formatarDataBR(etapa.dataCorrida)}` : "";
+            const selected = etapa.docId === etapaSelecionada.docId ? " selected" : "";
+
+            return `<option value="${htmlEscape(etapa.docId)}"${selected}>Etapa ${htmlEscape(etapa.etapa || etapa.docId)}${data}</option>`;
+        }).join("");
+
+        const [corridaSnapshot, classificacaoSnapshot] = await Promise.all([
+            etapaSelecionada.ref.collection("pilotos_resultado").get(),
+            etapaSelecionada.ref.collection("classificacao").get()
+        ]);
+
+        const corrida = corridaSnapshot.docs.map(doc => ({ docId: doc.id, ...(doc.data() || {}) }));
+        const classificacao = classificacaoSnapshot.docs.map(doc => ({ docId: doc.id, ...(doc.data() || {}) }));
+
+        const tabCorridaAtiva = RANKING_CORRIDA_ABA_ATUAL !== "classificacao";
+        const tabela = tabCorridaAtiva
+            ? montarTabelaRankingCorrida(corrida, "corrida")
+            : montarTabelaRankingCorrida(classificacao, "classificacao");
+
+        content.innerHTML = `
+            <div class="form-card">
+                <div class="rank-corrida-head">
+                    <div>
+                        <label class="file-label" for="ranking_corrida_etapa">Etapa</label>
+                        <select id="ranking_corrida_etapa" onchange="renderRankingCorridaFirestore()">
+                            ${optionsEtapas}
+                        </select>
+                    </div>
+
+                    <div class="rank-info-card">
+                        <span class="muted">Data da corrida</span>
+                        <strong>${htmlEscape(dataCorrida ? formatarDataBR(dataCorrida) : "-")}</strong>
+                    </div>
+
+                    <div class="rank-info-card">
+                        <span class="muted">Etapa selecionada</span>
+                        <strong>Etapa ${htmlEscape(etapaLabel)}</strong>
+                    </div>
+                </div>
+
+                <div class="tabs" style="margin-top: 12px;">
+                    <button id="rankingCorridaTabCorrida" class="tab-btn ${tabCorridaAtiva ? "active-tab" : ""}" onclick="trocarAbaRankingCorrida('corrida')">Corrida</button>
+                    <button id="rankingCorridaTabClassificacao" class="tab-btn ${!tabCorridaAtiva ? "active-tab" : ""}" onclick="trocarAbaRankingCorrida('classificacao')">Classificação</button>
+                </div>
+
+                <div id="rankingCorridaTabela">${tabela}</div>
+            </div>
+        `;
+
+        if (status) {
+            status.innerHTML = `✅ Etapa ${htmlEscape(etapaLabel)} carregada. Corrida: ${corrida.length} piloto(s). Classificação: ${classificacao.length} piloto(s).`;
+        }
+    } catch (e) {
+        console.error(e);
+
+        content.innerHTML = "";
+        if (status) status.innerHTML = `❌ Erro ao carregar corrida do Firestore: ${htmlEscape(e.message || e)}`;
+    }
+}
+
+
+async function renderRankingPilotosFirestore() {
     const select = document.getElementById("filtro_rank_firebase_camp");
     const content = document.getElementById("rankingFirestoreContent");
     const status = document.getElementById("rankingFirestoreStatus");
