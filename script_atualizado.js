@@ -781,23 +781,36 @@ function extrairVoltaAVoltaHTMLTexto(html, nomeArquivo = "") {
 }
 
 
-function encontrarPilotoCadastradoPorArquivo(item) {
-    const idItem = String(item?.driver_id || item?.id_piloto || "").trim();
-    const nomeItem = normalizarNomeComparacao(item?.driver_name || item?.nome || item?.piloto || "");
+function encontrarPilotoCadastradoPorDriverId(item) {
+    const idItem = String(item?.driver_id || item?.id_piloto || item?.id || "").trim();
+
+    if (!idItem) return null;
 
     return DB.pilotos.find(p => {
         const idPiloto = String(p.id_piloto || p.driver_id || p.id || "").trim();
-        if (idItem && idPiloto && idItem === idPiloto) return true;
+        return !!idPiloto && idItem === idPiloto;
+    }) || null;
+}
 
+function encontrarPilotoCadastradoPorArquivo(item, permitirFallbackNome = true) {
+    const pilotoPorId = encontrarPilotoCadastradoPorDriverId(item);
+
+    if (pilotoPorId || !permitirFallbackNome) {
+        return pilotoPorId;
+    }
+
+    const nomeItem = normalizarNomeComparacao(item?.driver_name || item?.nome || item?.piloto || "");
+
+    return DB.pilotos.find(p => {
         const nomePiloto = normalizarNomeComparacao(p.nome || p.driver_name || "");
         return !!nomeItem && !!nomePiloto && nomeItem === nomePiloto;
     }) || null;
 }
 
-function pilotoArquivoEstaNoCampeonato(item, campeonato) {
+function pilotoArquivoEstaNoCampeonato(item, campeonato, permitirFallbackNome = true) {
     if (!campeonato) return false;
 
-    const pilotoCadastrado = encontrarPilotoCadastradoPorArquivo(item);
+    const pilotoCadastrado = encontrarPilotoCadastradoPorArquivo(item, permitirFallbackNome);
     if (!pilotoCadastrado) return false;
 
     return vinculosPiloto(pilotoCadastrado).includes(campeonato);
@@ -854,23 +867,30 @@ function montarImportacaoPreviaVoltaAVolta(registrosVoltas, campeonato = "", exi
     const pilotosArquivo = pilotosUnicosVoltaAVoltaParaPreview(registrosVoltas);
     const pilotosCampeonato = pilotosArquivo
         .map(item => {
-            const pilotoCadastrado = encontrarPilotoCadastradoPorArquivo(item);
-            const estaNoCampeonato = pilotoCadastrado ? vinculosPiloto(pilotoCadastrado).includes(campeonato) : false;
+            // No Volta a volta, o vínculo com o campeonato precisa ser feito SOMENTE por driver_id.
+            // Não usamos nome como fallback para evitar marcar o piloto errado quando existem homônimos.
+            const pilotoCadastrado = encontrarPilotoCadastradoPorDriverId(item);
+            const driverIdArquivo = String(item.driver_id || item.id_piloto || "").trim();
+            const estaNoCampeonato = !!driverIdArquivo && pilotoCadastrado
+                ? vinculosPiloto(pilotoCadastrado).includes(campeonato)
+                : false;
 
             return {
                 ...item,
-                driver_id: String(item.driver_id || pilotoCadastrado?.driver_id || pilotoCadastrado?.id_piloto || "").trim(),
-                id_piloto: String(item.driver_id || pilotoCadastrado?.driver_id || pilotoCadastrado?.id_piloto || "").trim(),
+                driver_id: driverIdArquivo,
+                id_piloto: driverIdArquivo,
                 driver_name: item.driver_name || pilotoCadastrado?.driver_name || pilotoCadastrado?.nome || "-",
                 nome: item.driver_name || pilotoCadastrado?.driver_name || pilotoCadastrado?.nome || "-",
                 checked: !!estaNoCampeonato,
                 foraDoCampeonato: !estaNoCampeonato,
                 conflitoId: !estaNoCampeonato,
                 status: estaNoCampeonato
-                    ? "Piloto do campeonato — história individual será gerada se marcado"
+                    ? `Piloto do campeonato validado por driver_id ${driverIdArquivo} — história individual será gerada se marcado`
                     : campeonato
-                        ? "Ignorado: piloto não está vinculado ao campeonato"
-                        : "Selecione um campeonato para validar o vínculo"
+                        ? (driverIdArquivo
+                            ? `Ignorado: driver_id ${driverIdArquivo} não está vinculado ao campeonato`
+                            : "Ignorado: driver_id não identificado no arquivo")
+                        : "Selecione um campeonato para validar o vínculo por driver_id"
             };
         })
         .filter(item => campeonato ? !item.foraDoCampeonato : true)
@@ -1000,7 +1020,9 @@ function mesmoPilotoHistoria(a, b) {
     const idA = String(a?.driver_id || a?.id_piloto || "").trim();
     const idB = String(b?.driver_id || b?.id_piloto || "").trim();
 
-    if (idA && idB) return idA === idB;
+    if (idA || idB) {
+        return !!idA && !!idB && idA === idB;
+    }
 
     const nomeA = normalizarNomeComparacao(a?.driver_name || a?.nome || a?.piloto || "");
     const nomeB = normalizarNomeComparacao(b?.driver_name || b?.nome || b?.piloto || "");
@@ -1031,7 +1053,7 @@ function obterPilotosSelecionadosHistoriaVoltaAVolta(campeonato = "") {
         if (item.foraDoCampeonato) return;
 
         const pertenceAoCampeonato = campeonato
-            ? pilotoArquivoEstaNoCampeonato(item, campeonato) || !item.foraDoCampeonato
+            ? pilotoArquivoEstaNoCampeonato(item, campeonato, false)
             : true;
 
         if (!pertenceAoCampeonato) return;
@@ -1383,7 +1405,7 @@ async function coletarDadosCorridaParaHistoria({ campeonato, etapa, dataCorrida,
     };
 }
 
-async function salvarHistoriaPilotoFirestore({ resultadoDocRef, piloto, historia, modelo, agoraISO }) {
+async function salvarHistoriaPilotoFirestore({ resultadoDocRef, piloto, historia, modelo, agoraISO, idImportacaoHistoria = "" }) {
     const itemId = normalizarDocId(piloto.driver_id || piloto.id_piloto || piloto.driver_name || "piloto");
     const payload = toFirestoreSafe({
         driver_id: piloto.driver_id || piloto.id_piloto || "",
@@ -1395,6 +1417,8 @@ async function salvarHistoriaPilotoFirestore({ resultadoDocRef, piloto, historia
         historia_status: "gerada",
         historiaPilotoAtualizadaEmISO: agoraISO,
         historiaModelo: modelo,
+        historiaIdImportacao: idImportacaoHistoria || "",
+        idImportacaoHistoria: idImportacaoHistoria || "",
         atualizadoEmISO: agoraISO
     });
 
@@ -1428,7 +1452,8 @@ async function gerarHistoriasAposImportacao({
     conteudoVoltaAtual = "",
     nomeArquivoAtual = "",
     status = null,
-    pilotosSelecionadosHistoria = null
+    pilotosSelecionadosHistoria = null,
+    idImportacaoHistoria = ""
 }) {
     const config = obterConfigHistoriaIAImportacao();
 
@@ -1497,6 +1522,8 @@ async function gerarHistoriasAposImportacao({
                 origem: "gemini",
                 atualizadoEmISO: agoraISO,
                 tipoArquivoDisparador: cfg?.tipo || "",
+                idImportacao: idImportacaoHistoria || "",
+                idImportacaoHistoria: idImportacaoHistoria || "",
                 pilotosSelecionados: pilotosBase.map(p => ({
                     driver_id: p.driver_id || p.id_piloto || "",
                     driver_name: p.driver_name || p.nome || ""
@@ -1514,6 +1541,8 @@ async function gerarHistoriasAposImportacao({
                 driver_id: p.driver_id || p.id_piloto || "",
                 driver_name: p.driver_name || p.nome || ""
             })),
+            historiaIdImportacao: idImportacaoHistoria || "",
+            idImportacaoHistoria: idImportacaoHistoria || "",
             historiaGeralStatus: "gerada",
             atualizadoEmISO: agoraISO
         }), { merge: true });
@@ -1530,6 +1559,8 @@ async function gerarHistoriasAposImportacao({
             historiaGeralStatus: "erro",
             historiaGeralErro: falhaGeral,
             historiaModelo: config.modelo,
+            historiaIdImportacao: idImportacaoHistoria || "",
+            idImportacaoHistoria: idImportacaoHistoria || "",
             historiaAtualizadaEmISO: agoraISO,
             atualizadoEmISO: agoraISO
         }), { merge: true });
@@ -1565,7 +1596,8 @@ async function gerarHistoriasAposImportacao({
                 piloto,
                 historia: historiaPiloto,
                 modelo: config.modelo,
-                agoraISO
+                agoraISO,
+                idImportacaoHistoria
             });
 
             geradosPiloto += 1;
@@ -1582,6 +1614,8 @@ async function gerarHistoriasAposImportacao({
                 historia_status: "erro",
                 historiaErro: e.message || String(e),
                 historiaModelo: config.modelo,
+                historiaIdImportacao: idImportacaoHistoria || "",
+                idImportacaoHistoria: idImportacaoHistoria || "",
                 historiaPilotoAtualizadaEmISO: agoraISO,
                 atualizadoEmISO: agoraISO
             });
@@ -1827,7 +1861,8 @@ async function fazerBackupEProcessar() {
                         conteudoVoltaAtual: cfg.tipo === "volta_a_volta" ? conteudoRaw : "",
                         nomeArquivoAtual: file.name,
                         status,
-                        pilotosSelecionadosHistoria: cfg.tipo === "volta_a_volta" ? pilotosSelecionadosHistoria : null
+                        pilotosSelecionadosHistoria: cfg.tipo === "volta_a_volta" ? pilotosSelecionadosHistoria : null,
+                        idImportacaoHistoria: cfg.tipo === "volta_a_volta" ? idUnico : ""
                     });
                 }
             } catch (historiaErro) {
@@ -2561,27 +2596,291 @@ async function verConteudo(key) {
     }
 }
 
+function firestoreDeleteValue() {
+    return firebase.firestore.FieldValue.delete();
+}
+
+function refPathFirestore(ref) {
+    return ref?.path || "";
+}
+
+async function executarBatchFirestore(operacoes, tamanhoLote = 400) {
+    const ops = (operacoes || []).filter(Boolean);
+    let total = 0;
+
+    for (let i = 0; i < ops.length; i += tamanhoLote) {
+        const batch = firestore.batch();
+        const lote = ops.slice(i, i + tamanhoLote);
+
+        lote.forEach(op => {
+            if (!op?.ref) return;
+
+            if (op.tipo === "delete") {
+                batch.delete(op.ref);
+            } else if (op.tipo === "update") {
+                batch.update(op.ref, op.payload || {});
+            } else if (op.tipo === "set") {
+                batch.set(op.ref, op.payload || {}, op.options || { merge: true });
+            }
+        });
+
+        await batch.commit();
+        total += lote.length;
+    }
+
+    return total;
+}
+
+async function coletarDocsPorQueryFirestore(query, mapaDocs) {
+    try {
+        const snap = await query.get();
+        snap.forEach(doc => mapaDocs.set(refPathFirestore(doc.ref), doc));
+    } catch (e) {
+        console.warn("Não foi possível consultar documentos para exclusão:", e);
+    }
+}
+
+function adicionarPilotoRelacionadoExclusao(mapaPilotos, data = {}, docId = "") {
+    const driverId = String(data.driver_id || data.id_piloto || data.driverId || "").trim();
+    const docIdSeguro = String(docId || "").trim();
+    const chave = driverId || docIdSeguro;
+
+    if (!chave) return;
+
+    mapaPilotos.set(normalizarDocId(chave), {
+        docId: normalizarDocId(chave),
+        driver_id: driverId || docIdSeguro,
+        driver_name: data.driver_name || data.nome || data.piloto || ""
+    });
+}
+
+function importacaoVoltaAVoltaPertenceAoBackup(data = {}, key = "") {
+    return String(data.ultimoVoltaAVoltaImportado || "") === String(key || "") ||
+        String(data?.voltaAVoltaResumo?.idImportacao || "") === String(key || "") ||
+        String(data.historiaIdImportacao || data.idImportacaoHistoria || "") === String(key || "") ||
+        String(data?.historiaCorrida?.idImportacao || data?.historiaCorrida?.idImportacaoHistoria || "") === String(key || "");
+}
+
+function payloadLimpezaHistoriaVoltaAVolta() {
+    const del = firestoreDeleteValue();
+
+    return {
+        historia_piloto: del,
+        historia_ia_piloto: del,
+        historia_status: del,
+        historiaErro: del,
+        historiaModelo: del,
+        historiaPilotoAtualizadaEmISO: del,
+        historiaIdImportacao: del,
+        idImportacaoHistoria: del,
+        selecionado_para_historia: del,
+        ultimoVoltaAVoltaImportado: del,
+        voltas_volta_a_volta: del,
+        melhor_tempo_volta_a_volta: del,
+        melhor_tempo_volta_a_volta_segundos: del,
+        atualizadoEmISO: new Date().toISOString()
+    };
+}
+
+function payloadLimpezaResumoVoltaAVolta() {
+    const del = firestoreDeleteValue();
+
+    return {
+        historia_geral: del,
+        historia_ia_geral: del,
+        historiaCorrida: del,
+        historiaAtualizadaEmISO: del,
+        historiaModelo: del,
+        historiaFonte: del,
+        historiaPilotosSelecionados: del,
+        historiaGeralStatus: del,
+        historiaGeralErro: del,
+        historiaIdImportacao: del,
+        idImportacaoHistoria: del,
+        ultimoVoltaAVoltaImportado: del,
+        voltaAVoltaResumo: del,
+        atualizadoEmISO: new Date().toISOString()
+    };
+}
+
+function docPilotosResultadoFoiCriadoApenasPeloVoltaAVolta(data = {}, key = "") {
+    const temResultadoFinal = data.tipoArquivo === "resultado_final" ||
+        data.resultadoFinalResumo ||
+        data.posicao_final2 !== undefined ||
+        data.pontos !== undefined ||
+        data.total_tempo !== undefined ||
+        data.total_tempo_segundos !== undefined ||
+        data.posicao_geral_arquivo !== undefined;
+
+    const temClassificacao = data.tipoArquivo === "classificacao";
+
+    return String(data.ultimoVoltaAVoltaImportado || "") === String(key || "") &&
+        !data.idImportacao &&
+        !temResultadoFinal &&
+        !temClassificacao;
+}
+
+async function excluirDadosVoltaAVoltaRelacionados({ key, item, campRef, resultRef, resultadoDocId }) {
+    const operacoes = [];
+    const docsParaDeletar = new Map();
+    const pilotosRelacionados = new Map();
+    const campId = campRef.id;
+
+    const resultadoDoc = await resultRef.get();
+    const resultadoData = resultadoDoc.exists ? (resultadoDoc.data() || {}) : {};
+
+    if (importacaoVoltaAVoltaPertenceAoBackup(resultadoData, key)) {
+        (resultadoData?.voltaAVoltaResumo?.pilotosSelecionados || []).forEach(p => adicionarPilotoRelacionadoExclusao(pilotosRelacionados, p, p.driver_id || p.id_piloto));
+        (resultadoData?.historiaPilotosSelecionados || []).forEach(p => adicionarPilotoRelacionadoExclusao(pilotosRelacionados, p, p.driver_id || p.id_piloto));
+        operacoes.push({ tipo: "update", ref: resultRef, payload: payloadLimpezaResumoVoltaAVolta() });
+    }
+
+    await coletarDocsPorQueryFirestore(
+        campRef.collection("volta_a_volta").where("idImportacao", "==", key),
+        docsParaDeletar
+    );
+    await coletarDocsPorQueryFirestore(
+        campRef.collection("volta_a_volta").where("caminhoBackup", "==", `${COLLECTION_BACKUPS}/${key}`),
+        docsParaDeletar
+    );
+
+    const docVoltaEsperado = campRef.collection("volta_a_volta").doc(`${resultadoDocId}_${normalizarDocId(key)}`);
+    const docVoltaEsperadoSnap = await docVoltaEsperado.get();
+    if (docVoltaEsperadoSnap.exists) docsParaDeletar.set(refPathFirestore(docVoltaEsperado), docVoltaEsperadoSnap);
+
+    await coletarDocsPorQueryFirestore(
+        resultRef.collection("volta_a_volta_pilotos").where("idImportacao", "==", key),
+        docsParaDeletar
+    );
+    await coletarDocsPorQueryFirestore(
+        resultRef.collection("historias_pilotos").where("historiaIdImportacao", "==", key),
+        docsParaDeletar
+    );
+    await coletarDocsPorQueryFirestore(
+        resultRef.collection("historias_pilotos").where("idImportacaoHistoria", "==", key),
+        docsParaDeletar
+    );
+    await coletarDocsPorQueryFirestore(
+        resultRef.collection("historias_pilotos").where("idImportacao", "==", key),
+        docsParaDeletar
+    );
+
+    docsParaDeletar.forEach(doc => {
+        const data = doc.data() || {};
+        adicionarPilotoRelacionadoExclusao(pilotosRelacionados, data, doc.id);
+    });
+
+    // Para importações antigas, a história individual pode ter sido salva em historias_pilotos
+    // sem guardar o id da importação. Nesses casos, removemos pelo driver_id selecionado no volta_a_volta_pilotos.
+    for (const piloto of pilotosRelacionados.values()) {
+        const docId = normalizarDocId(piloto.driver_id || piloto.docId || "");
+        if (!docId) continue;
+
+        const historiaRef = resultRef.collection("historias_pilotos").doc(docId);
+        const voltaPilotoRef = resultRef.collection("volta_a_volta_pilotos").doc(docId);
+
+        const [historiaSnap, voltaSnap] = await Promise.all([
+            historiaRef.get(),
+            voltaPilotoRef.get()
+        ]);
+
+        if (historiaSnap.exists) docsParaDeletar.set(refPathFirestore(historiaRef), historiaSnap);
+        if (voltaSnap.exists) docsParaDeletar.set(refPathFirestore(voltaPilotoRef), voltaSnap);
+
+        const corridaRef = resultRef.collection("pilotos_resultado").doc(docId);
+        const classificacaoRef = resultRef.collection("classificacao").doc(docId);
+        const [corridaSnap, classificacaoSnap] = await Promise.all([
+            corridaRef.get(),
+            classificacaoRef.get()
+        ]);
+
+        if (corridaSnap.exists) {
+            const dataCorridaDoc = corridaSnap.data() || {};
+            if (docPilotosResultadoFoiCriadoApenasPeloVoltaAVolta(dataCorridaDoc, key)) {
+                docsParaDeletar.set(refPathFirestore(corridaRef), corridaSnap);
+            } else {
+                operacoes.push({ tipo: "update", ref: corridaRef, payload: payloadLimpezaHistoriaVoltaAVolta() });
+            }
+        }
+
+        if (classificacaoSnap.exists) {
+            operacoes.push({
+                tipo: "update",
+                ref: classificacaoRef,
+                payload: {
+                    historia_piloto: firestoreDeleteValue(),
+                    historia_ia_piloto: firestoreDeleteValue(),
+                    historia_status: firestoreDeleteValue(),
+                    historiaErro: firestoreDeleteValue(),
+                    historiaModelo: firestoreDeleteValue(),
+                    historiaPilotoAtualizadaEmISO: firestoreDeleteValue(),
+                    historiaIdImportacao: firestoreDeleteValue(),
+                    idImportacaoHistoria: firestoreDeleteValue(),
+                    atualizadoEmISO: new Date().toISOString()
+                }
+            });
+        }
+    }
+
+    docsParaDeletar.forEach(doc => {
+        operacoes.push({ tipo: "delete", ref: doc.ref });
+    });
+
+    const totalOps = await executarBatchFirestore(operacoes);
+
+    return {
+        totalOps,
+        pilotosAfetados: pilotosRelacionados.size,
+        campId
+    };
+}
+
 async function excluirImportacao(key) {
     if (!await pedirSenhaAdmin()) return;
-    if (!confirm("Excluir importação e dados relacionados?")) return;
+    if (!confirm("Excluir importação e todos os dados relacionados nas collections/subcollections?")) return;
+
     const doc = await firestore.collection(COLLECTION_BACKUPS).doc(key).get();
     if (!doc.exists) return alert("Importação não encontrada.");
+
     const item = doc.data() || {};
     const campId = normalizarDocId(item.campeonato || "");
     const dataCorrida = item.dataCorrida || extrairDataItem(item);
     const resultadoDocId = getResultadoFinalDocId(item.etapa || "sem_etapa", dataCorrida);
-    const resultRef = firestore.collection(COLLECTION_CAMPEONATOS).doc(campId).collection("resultado_final").doc(resultadoDocId);
-    for (const sub of ["pilotos_resultado", "classificacao"]) {
-        const snap = await resultRef.collection(sub).where("idImportacao", "==", key).get();
-        if (!snap.empty) {
-            const batch = firestore.batch();
-            snap.forEach(d => batch.delete(d.ref));
-            await batch.commit();
+    const campRef = firestore.collection(COLLECTION_CAMPEONATOS).doc(campId);
+    const resultRef = campRef.collection("resultado_final").doc(resultadoDocId);
+    const tipoArquivo = String(item.tipoArquivo || item.tipo || "").trim();
+    let totalOps = 0;
+
+    try {
+        if (tipoArquivo === "volta_a_volta") {
+            const infoVolta = await excluirDadosVoltaAVoltaRelacionados({
+                key,
+                item,
+                campRef,
+                resultRef,
+                resultadoDocId
+            });
+            totalOps += infoVolta.totalOps;
+        } else {
+            const operacoes = [];
+
+            for (const sub of ["pilotos_resultado", "classificacao"]) {
+                const snap = await resultRef.collection(sub).where("idImportacao", "==", key).get();
+                snap.forEach(d => operacoes.push({ tipo: "delete", ref: d.ref }));
+            }
+
+            totalOps += await executarBatchFirestore(operacoes);
         }
+
+        await firestore.collection(COLLECTION_BACKUPS).doc(key).delete();
+
+        alert(`Importação excluída com sucesso. ${totalOps} registro(s) relacionado(s) foram removidos/limpos.`);
+        await carregarHistorico();
+        await inicializarRankingFirestore();
+    } catch (e) {
+        console.error(e);
+        alert(`Erro ao excluir importação: ${e.message || e}`);
     }
-    await firestore.collection(COLLECTION_BACKUPS).doc(key).delete();
-    alert("Importação excluída com sucesso.");
-    await carregarHistorico();
 }
 
 async function renderResultadoDia(dia) {
@@ -3512,22 +3811,12 @@ async function renderRankingCorridaFirestore() {
                             ${optionsEtapas}
                         </select>
                     </div>
-
-                    <div class="rank-info-card">
-                        <span class="muted">Data da corrida</span>
-                        <strong>${htmlEscape(dataCorrida ? formatarDataBR(dataCorrida) : "-")}</strong>
-                    </div>
-
-                    <div class="rank-info-card">
-                        <span class="muted">Etapa selecionada</span>
-                        <strong>Etapa ${htmlEscape(etapaLabel)}</strong>
-                    </div>
                 </div>
 
                 <div class="tabs" style="margin-top: 12px;">
                     <button id="rankingCorridaTabCorrida" class="tab-btn ${tabCorridaAtiva ? "active-tab" : ""}" onclick="trocarAbaRankingCorrida('corrida')">Corrida</button>
                     <button id="rankingCorridaTabClassificacao" class="tab-btn ${!tabCorridaAtiva ? "active-tab" : ""}" onclick="trocarAbaRankingCorrida('classificacao')">Classificação</button>
-                    <button class="tab-btn" onclick="abrirHistoriaCache('${historiaGeralId}', 'História geral da corrida')">História da corrida</button>
+                    <button class="tab-btn" onclick="abrirHistoriaCache('${historiaGeralId}', 'História geral da corrida')">História</button>
                 </div>
 
                 <div id="rankingCorridaTabela">${tabela}</div>
