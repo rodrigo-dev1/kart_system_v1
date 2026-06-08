@@ -263,7 +263,7 @@ function vinculosPiloto(p) {
 }
 
 function pilotosDoCampeonato(campeonato) {
-    return DB.pilotos.filter(p => vinculosPiloto(p).includes(campeonato));
+    return DB.pilotos.filter(p => pilotoPertenceAoCampeonato(p, campeonato));
 }
 
 function getTipoArquivoSelecionado() {
@@ -437,16 +437,78 @@ function obterMelhorTempoSegundos(item) {
 }
 
 function extrairCampeonatosDoPilotoExistente(data) {
-    const bruto = data?.campeonatos || data?.vinculos || [];
+    const camposPossiveis = [
+        data?.campeonatos,
+        data?.vinculos,
+        data?.campeonato,
+        data?.campeonato_nome,
+        data?.campeonato_id,
+        data?.id_campeonato
+    ];
+    const valores = [];
 
-    if (Array.isArray(bruto)) {
-        return bruto.map(v => String(v || "").trim()).filter(Boolean);
+    const adicionarValor = valor => {
+        if (valor === undefined || valor === null) return;
+
+        if (Array.isArray(valor)) {
+            valor.forEach(adicionarValor);
+            return;
+        }
+
+        if (typeof valor === "object") {
+            Object.values(valor).forEach(adicionarValor);
+            return;
+        }
+
+        String(valor || "")
+            .split(",")
+            .map(v => v.trim())
+            .filter(Boolean)
+            .forEach(v => valores.push(v));
+    };
+
+    camposPossiveis.forEach(adicionarValor);
+
+    return valores.filter((v, idx, arr) => arr.findIndex(x => normalizarChave(x) === normalizarChave(v)) === idx);
+}
+
+function aliasesCampeonato(valor) {
+    const texto = String(valor || "").trim();
+    const aliases = new Set();
+
+    if (texto) {
+        aliases.add(texto);
+        aliases.add(normalizarDocId(texto));
+        aliases.add(normalizarChave(texto));
     }
 
-    return String(bruto || "")
-        .split(",")
-        .map(v => v.trim())
-        .filter(Boolean);
+    const campeonato = DB.campeonatos.find(c =>
+        String(c.nome || "").trim() === texto ||
+        String(c.id || "").trim() === texto ||
+        normalizarDocId(c.nome || "") === normalizarDocId(texto) ||
+        normalizarDocId(c.id || "") === normalizarDocId(texto)
+    );
+
+    if (campeonato) {
+        [campeonato.nome, campeonato.id, campeonato.nome_exibicao].forEach(v => {
+            const item = String(v || "").trim();
+            if (!item) return;
+            aliases.add(item);
+            aliases.add(normalizarDocId(item));
+            aliases.add(normalizarChave(item));
+        });
+    }
+
+    return aliases;
+}
+
+function pilotoPertenceAoCampeonato(p, campeonato) {
+    const aliases = aliasesCampeonato(campeonato);
+
+    return vinculosPiloto(p).some(v => {
+        const valor = String(v || "").trim();
+        return aliases.has(valor) || aliases.has(normalizarDocId(valor)) || aliases.has(normalizarChave(valor));
+    });
 }
 
 async function marcarPilotosJaVinculadosAoCampeonato(campeonato, exibirHint = true) {
@@ -480,18 +542,17 @@ async function marcarPilotosJaVinculadosAoCampeonato(campeonato, exibirHint = tr
             );
 
             if (!pilotoExistente) {
+                item.checked = true;
                 item.status = "Será cadastrado automaticamente";
                 continue;
             }
 
-            const campeonatos = vinculosPiloto(pilotoExistente);
-
-            if (campeonatos.includes(campeonato)) {
+            if (pilotoPertenceAoCampeonato(pilotoExistente, campeonato)) {
                 item.checked = true;
                 item.status = "Piloto já está neste campeonato";
             } else {
-                item.checked = false;
-                item.status = "Piloto existe; será vinculado ao campeonato se marcado";
+                item.checked = true;
+                item.status = "Piloto existe; será vinculado automaticamente";
             }
 
             if (!item.driver_name && pilotoExistente.nome) {
@@ -505,8 +566,8 @@ async function marcarPilotosJaVinculadosAoCampeonato(campeonato, exibirHint = tr
 
         if (status) {
             status.innerHTML = selecionados
-                ? `✅ ${selecionados} piloto(s) já estavam vinculados ao campeonato e foram marcados automaticamente.`
-                : "✅ Verificação concluída. Nenhum piloto do arquivo estava vinculado a este campeonato.";
+                ? `✅ ${selecionados} piloto(s) válido(s) foram marcados automaticamente para importar/vincular ao campeonato.`
+                : "✅ Verificação concluída. Nenhum piloto válido foi marcado automaticamente.";
         }
     } catch (e) {
         console.error(e);
@@ -618,7 +679,14 @@ async function salvarPilotoGlobalNoFirestore(p, campeonato) {
     const dadosAtuais = snapshot.exists ? snapshot.data() : {};
     const campeonatosAtuais = extrairCampeonatosDoPilotoExistente(dadosAtuais);
 
-    if (!campeonatosAtuais.includes(campeonato)) {
+    const aliasesDoCampeonato = aliasesCampeonato(campeonato);
+    const jaVinculado = campeonatosAtuais.some(v =>
+        aliasesDoCampeonato.has(String(v || "").trim()) ||
+        aliasesDoCampeonato.has(normalizarDocId(v)) ||
+        aliasesDoCampeonato.has(normalizarChave(v))
+    );
+
+    if (!jaVinculado) {
         campeonatosAtuais.push(campeonato);
     }
 
@@ -813,7 +881,7 @@ function pilotoArquivoEstaNoCampeonato(item, campeonato, permitirFallbackNome = 
     const pilotoCadastrado = encontrarPilotoCadastradoPorArquivo(item, permitirFallbackNome);
     if (!pilotoCadastrado) return false;
 
-    return vinculosPiloto(pilotoCadastrado).includes(campeonato);
+    return pilotoPertenceAoCampeonato(pilotoCadastrado, campeonato);
 }
 
 function pilotosUnicosVoltaAVoltaParaPreview(voltas) {
@@ -872,7 +940,7 @@ function montarImportacaoPreviaVoltaAVolta(registrosVoltas, campeonato = "", exi
             const pilotoCadastrado = encontrarPilotoCadastradoPorDriverId(item);
             const driverIdArquivo = String(item.driver_id || item.id_piloto || "").trim();
             const estaNoCampeonato = !!driverIdArquivo && pilotoCadastrado
-                ? vinculosPiloto(pilotoCadastrado).includes(campeonato)
+                ? pilotoPertenceAoCampeonato(pilotoCadastrado, campeonato)
                 : false;
 
             return {
@@ -2029,19 +2097,19 @@ function montarImportacaoPreviaDoArquivo(registros, campeonato = "", tipoArquivo
                 (item.driver_name || "").toUpperCase()
             );
 
-        const vinculado = existente ? vinculosPiloto(existente).includes(campeonato) : false;
+        const vinculado = existente ? pilotoPertenceAoCampeonato(existente, campeonato) : false;
 
         return {
             ...item,
             tipoArquivo,
-            checked: false,
+            checked: !conflitoId,
             conflitoId,
             status: conflitoId
                 ? "ID duplicado/conflito"
                 : existente
                     ? vinculado
                         ? "Piloto vinculado ao campeonato"
-                        : "Piloto cadastrado sem vínculo"
+                        : "Piloto cadastrado; será vinculado automaticamente"
                     : "Será cadastrado automaticamente"
         };
     });
@@ -3313,9 +3381,8 @@ function editarPiloto(idx) {
     if (apelido) apelido.value = p.apelido || "";
 
     if (campeonatos) {
-        const vinculos = new Set(vinculosPiloto(p));
         Array.from(campeonatos.options).forEach(opt => {
-            opt.selected = vinculos.has(opt.value);
+            opt.selected = pilotoPertenceAoCampeonato(p, opt.value);
         });
     }
 
@@ -3450,7 +3517,7 @@ async function buscarIdsPilotosDoCampeonatoFirestore(campeonatoNome) {
     const ids = new Set();
 
     DB.pilotos
-        .filter(p => vinculosPiloto(p).includes(campeonatoNome))
+        .filter(p => pilotoPertenceAoCampeonato(p, campeonatoNome))
         .forEach(p => {
             const driverId = String(p.driver_id || p.id_piloto || p.id || "").trim();
             if (driverId) {
