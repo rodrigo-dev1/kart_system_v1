@@ -3409,14 +3409,16 @@ async function carregarCampeonatosRankingFirestore() {
             `<option value="${htmlEscape(c.id || normalizarDocId(c.nome))}">${htmlEscape(c.nome)}</option>`
         ).join("");
 
-        if (valorAtual && DB.campeonatos.some(c => (c.id || normalizarDocId(c.nome)) === valorAtual)) {
-            select.value = valorAtual;
-        }
-
         if (!DB.campeonatos.length) {
             select.innerHTML = '<option value="">Nenhum campeonato encontrado no Firebase</option>';
             if (status) status.innerHTML = `Nenhum campeonato encontrado na collection ${COLLECTION_CAMPEONATOS}.`;
             return;
+        }
+
+        if (valorAtual && DB.campeonatos.some(c => (c.id || normalizarDocId(c.nome)) === valorAtual)) {
+            select.value = valorAtual;
+        } else if (!select.value) {
+            select.value = DB.campeonatos[0].id || normalizarDocId(DB.campeonatos[0].nome);
         }
 
         if (status && !select.value) status.innerHTML = "Selecione um campeonato para carregar o ranking do Firestore.";
@@ -3513,20 +3515,80 @@ function somarClassificacaoRankingFirestore(rankingMap, item, etapaInfo) {
     });
 }
 
-async function buscarIdsPilotosDoCampeonatoFirestore(campeonatoNome) {
+async function buscarPilotosDoCampeonatoRankingFirestore(campeonato) {
     const ids = new Set();
+    const nomes = new Set();
 
     DB.pilotos
-        .filter(p => pilotoPertenceAoCampeonato(p, campeonatoNome))
+        .filter(p => pilotoPertenceAoCampeonato(p, campeonato))
         .forEach(p => {
             const driverId = String(p.driver_id || p.id_piloto || p.id || "").trim();
+            const nome = String(p.driver_name || p.nome || "").trim();
+
             if (driverId) {
                 ids.add(driverId);
                 ids.add(normalizarDocId(driverId));
+                ids.add(normalizarChave(driverId));
+            }
+
+            if (nome) {
+                nomes.add(normalizarNomeComparacao(nome));
+                nomes.add(normalizarDocId(nome));
+                nomes.add(normalizarChave(nome));
             }
         });
 
-    return ids;
+    return { ids, nomes };
+}
+
+function linhaPertenceAoCampeonatoRanking(item, docId, pilotosCampeonato) {
+    const ids = pilotosCampeonato?.ids || new Set();
+    const nomes = pilotosCampeonato?.nomes || new Set();
+
+    if (!ids.size && !nomes.size) return true;
+
+    const driverId = String(item?.driver_id || item?.id_piloto || docId || "").trim();
+    const driverName = String(item?.driver_name || item?.nome || item?.piloto || "").trim();
+
+    return (driverId && (
+        ids.has(driverId) ||
+        ids.has(normalizarDocId(driverId)) ||
+        ids.has(normalizarChave(driverId))
+    )) || (docId && (
+        ids.has(docId) ||
+        ids.has(normalizarDocId(docId)) ||
+        ids.has(normalizarChave(docId))
+    )) || (driverName && (
+        nomes.has(normalizarNomeComparacao(driverName)) ||
+        nomes.has(normalizarDocId(driverName)) ||
+        nomes.has(normalizarChave(driverName))
+    ));
+}
+
+function extrairLinhasResumoRankingFirestore(etapaInfo, campos) {
+    for (const campo of campos) {
+        const valor = campo.split(".").reduce((acc, key) => acc?.[key], etapaInfo);
+
+        if (Array.isArray(valor) && valor.length) {
+            return valor;
+        }
+    }
+
+    return [];
+}
+
+function montarLinhasComFallbackResumoRankingFirestore(snapshot, etapaInfo, camposResumo) {
+    if (snapshot.docs.length) {
+        return snapshot.docs.map(doc => ({
+            docId: doc.id,
+            data: doc.data() || {}
+        }));
+    }
+
+    return extrairLinhasResumoRankingFirestore(etapaInfo, camposResumo).map((data, idx) => ({
+        docId: normalizarDocId(data.driver_id || data.id_piloto || data.driver_name || data.nome || `piloto_${idx + 1}`),
+        data: data || {}
+    }));
 }
 
 function obterPosicaoArquivo(item) {
@@ -3553,8 +3615,8 @@ async function buscarRankingFirestorePorCampeonato(campeonatoDocId) {
     const campRef = firestore.collection(COLLECTION_CAMPEONATOS).doc(campeonatoDocId);
     const campDoc = await campRef.get();
     const campData = campDoc.exists ? campDoc.data() || {} : {};
-    const campeonatoNome = campData.nome || campeonatoDocId;
-    const idsPilotosCampeonato = await buscarIdsPilotosDoCampeonatoFirestore(campeonatoNome);
+    const campeonatoNome = campData.nome || campData.nome_exibicao || campeonatoDocId;
+    const pilotosCampeonato = await buscarPilotosDoCampeonatoRankingFirestore(campeonatoNome || campeonatoDocId);
     const resultadosSnapshot = await campRef.collection("resultado_final").get();
     const rankingMap = new Map();
 
@@ -3562,40 +3624,46 @@ async function buscarRankingFirestorePorCampeonato(campeonatoDocId) {
         const etapaInfo = resultadoDoc.data() || {};
         const resultadoRef = resultadoDoc.ref;
         const pilotosResultadoSnapshot = await resultadoRef.collection("pilotos_resultado").get();
+        const pilotosResultadoDocs = montarLinhasComFallbackResumoRankingFirestore(
+            pilotosResultadoSnapshot,
+            etapaInfo,
+            [
+                "resultadoFinalResumo.pilotosSelecionados",
+                "resultado_final.pilotosSelecionados",
+                "pilotos_resultado",
+                "pilotosSelecionados",
+                "pilotos"
+            ]
+        );
 
-        pilotosResultadoSnapshot.forEach(pilotoDoc => {
-            const data = pilotoDoc.data() || {};
-            const driverId = String(data.driver_id || data.id_piloto || pilotoDoc.id || "").trim();
-
-            if (idsPilotosCampeonato.size &&
-                !idsPilotosCampeonato.has(driverId) &&
-                !idsPilotosCampeonato.has(normalizarDocId(driverId)) &&
-                !idsPilotosCampeonato.has(pilotoDoc.id)) {
-                return;
-            }
-
+        pilotosResultadoDocs.forEach(({ docId, data }) => {
+            if (!linhaPertenceAoCampeonatoRanking(data, docId, pilotosCampeonato)) return;
             somarResultadoFinalRankingFirestore(rankingMap, data, etapaInfo);
         });
 
         const classificacaoSnapshot = await resultadoRef.collection("classificacao").get();
-        let classificacaoDocs = classificacaoSnapshot.docs.map(doc => {
-            const data = doc.data() || {};
-            const driverId = String(data.driver_id || data.id_piloto || doc.id || "").trim();
+        let classificacaoDocs = montarLinhasComFallbackResumoRankingFirestore(
+            classificacaoSnapshot,
+            etapaInfo,
+            [
+                "classificacaoResumo.pilotosSelecionados",
+                "classificacao.pilotosSelecionados",
+                "classificacao"
+            ]
+        ).map(item => {
+            const data = item.data || {};
+            const driverId = String(data.driver_id || data.id_piloto || item.docId || "").trim();
 
             return {
-                docId: doc.id,
+                docId: item.docId,
                 driverId,
                 data
             };
         });
 
-        if (idsPilotosCampeonato.size) {
-            classificacaoDocs = classificacaoDocs.filter(item =>
-                idsPilotosCampeonato.has(item.driverId) ||
-                idsPilotosCampeonato.has(normalizarDocId(item.driverId)) ||
-                idsPilotosCampeonato.has(item.docId)
-            );
-        }
+        classificacaoDocs = classificacaoDocs.filter(item =>
+            linhaPertenceAoCampeonatoRanking(item.data, item.docId, pilotosCampeonato)
+        );
 
         classificacaoDocs
             .sort((a, b) =>
@@ -3622,7 +3690,6 @@ async function buscarRankingFirestorePorCampeonato(campeonatoDocId) {
             a.driver_name.localeCompare(b.driver_name)
         );
 }
-
 
 function setRankingTabVisual() {
     const tabPilotos = document.getElementById("rankTabPilotos");
