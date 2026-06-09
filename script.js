@@ -528,7 +528,7 @@ async function marcarPilotosJaVinculadosAoCampeonato(campeonato, exibirHint = tr
         await carregarDadosBaseFirestore();
 
         for (const item of IMPORTACAO_PREVIA) {
-            aplicarSugestaoVinculoPilotoImportacao(item);
+            aplicarSugestaoVinculoPilotoImportacao(item, campeonato);
         }
 
         recalcularPreviewImportacao(campeonato, exibirHint, deveCalcular);
@@ -537,8 +537,8 @@ async function marcarPilotosJaVinculadosAoCampeonato(campeonato, exibirHint = tr
 
         if (status) {
             status.innerHTML = selecionados
-                ? `✅ ${selecionados} piloto(s) válido(s) foram marcados automaticamente para importar/vincular ao campeonato.`
-                : "✅ Verificação concluída. Nenhum piloto válido foi marcado automaticamente.";
+                ? `✅ ${selecionados} piloto(s) com vínculo encontrado por ID ou nome completo foram marcados automaticamente.`
+                : "✅ Verificação concluída. Nenhum vínculo por ID ou nome completo foi marcado automaticamente.";
         }
     } catch (e) {
         console.error(e);
@@ -936,40 +936,58 @@ function getPilotoSelecionadoImportacao(item) {
     return DB.pilotos.find(p => String(p.id || "") === docId) || null;
 }
 
-function aplicarSugestaoVinculoPilotoImportacao(item) {
+function pilotoTemMesmoIdArquivo(piloto, driverId) {
+    const idPiloto = String(piloto?.id_piloto || piloto?.driver_id || "").trim();
+    return !!driverId && !!idPiloto && idPiloto === driverId;
+}
+
+function pilotoTemMesmoNomeCompletoArquivo(piloto, nomeArquivo) {
+    const nomePiloto = normalizarNomeComparacao(piloto?.nome || piloto?.driver_name || "");
+    const nomeItem = normalizarNomeComparacao(nomeArquivo);
+    return !!nomePiloto && !!nomeItem && nomePiloto === nomeItem;
+}
+
+function vinculoEncontradoPorIdOuNomeCompleto(piloto, item, campeonato) {
+    if (!piloto || !campeonato || !pilotoPertenceAoCampeonato(piloto, campeonato)) return false;
+
+    const driverId = String(item?.driver_id || item?.id_piloto || "").trim();
+    const nomeArquivo = item?.driver_name || item?.nome || item?.piloto || "";
+
+    return pilotoTemMesmoIdArquivo(piloto, driverId) || pilotoTemMesmoNomeCompletoArquivo(piloto, nomeArquivo);
+}
+
+function aplicarSugestaoVinculoPilotoImportacao(item, campeonato = document.getElementById("imp_camp")?.value || "") {
     const driverId = String(item.driver_id || item.id_piloto || "").trim();
     const nomeArquivo = item.driver_name || item.nome || item.piloto || "";
-    const porId = driverId ? DB.pilotos.filter(p => {
-        const idPiloto = String(p.id_piloto || p.driver_id || "").trim();
-        return !!idPiloto && idPiloto === driverId;
-    }) : [];
+    const porId = driverId ? DB.pilotos.filter(p => pilotoTemMesmoIdArquivo(p, driverId)) : [];
+    const porNomeCompleto = DB.pilotos.filter(p => pilotoTemMesmoNomeCompletoArquivo(p, nomeArquivo));
     const similares = (!driverId || !porId.length) ? buscarPilotosSimilaresPorNome(nomeArquivo) : [];
-    const similarSemId = driverId ? similares.find(p => !String(p.id_piloto || p.driver_id || "").trim()) : null;
-    const selecionado = porId[0] || similarSemId || similares[0] || null;
-    const conflitoId = porId.length > 1;
+    const similarSemId = driverId ? similares.find(piloto => !String(piloto.id_piloto || piloto.driver_id || "").trim()) : null;
+    const selecionado = porId[0] || porNomeCompleto[0] || similarSemId || similares[0] || null;
+    const conflitoId = porId.length > 1 || (!porId.length && porNomeCompleto.length > 1);
+    const vinculoEncontrado = vinculoEncontradoPorIdOuNomeCompleto(selecionado, item, campeonato);
 
-    item.pilotosSugeridos = [...porId, ...similares].map(p => p.id);
+    item.pilotosSugeridos = [...porId, ...porNomeCompleto, ...similares].map(p => p.id);
     item.pilotoVinculadoDocId = selecionado?.id || "";
     item.criarNovoPiloto = !selecionado;
     item.conflitoId = conflitoId;
 
     if (conflitoId) {
-        item.status = "ID duplicado/conflito — selecione o cadastro correto";
+        item.status = "Mais de um cadastro encontrado — selecione o piloto correto";
     } else if (selecionado) {
-        const vinculado = pilotoPertenceAoCampeonato(selecionado, document.getElementById("imp_camp")?.value || "");
         const selecionadoSemId = !String(selecionado.id_piloto || selecionado.driver_id || "").trim();
-        item.status = selecionadoSemId && driverId
-            ? `Nome similar sem ID encontrado: ${selecionado.nome || selecionado.driver_name || selecionado.id} — o driver_id será preenchido`
-            : vinculado
-                ? `Vinculado ao cadastro: ${selecionado.nome || selecionado.driver_name || selecionado.id}`
-                : `Nome similar encontrado: ${selecionado.nome || selecionado.driver_name || selecionado.id} — será vinculado ao campeonato`;
+        item.status = vinculoEncontrado
+            ? `Vínculo encontrado: ${selecionado.nome || selecionado.driver_name || selecionado.id}`
+            : selecionadoSemId && driverId
+                ? `Nome similar sem ID encontrado: ${selecionado.nome || selecionado.driver_name || selecionado.id} — marque para preencher o driver_id e vincular`
+                : `Sugestão: ${selecionado.nome || selecionado.driver_name || selecionado.id} — marque para vincular ao campeonato`;
     } else if (driverId) {
-        item.status = "Será cadastrado automaticamente com o driver_id do arquivo";
+        item.status = "Sem vínculo encontrado: marque para cadastrar com o driver_id do arquivo";
     } else {
-        item.status = "Sem driver_id: será cadastrado pelo nome";
+        item.status = "Sem vínculo encontrado: marque para cadastrar pelo nome";
     }
 
-    item.checked = !conflitoId;
+    item.checked = vinculoEncontrado && !conflitoId;
 
     return item;
 }
@@ -1040,7 +1058,7 @@ function montarImportacaoPreviaVoltaAVolta(registrosVoltas, campeonato = "", exi
             driver_name: item.driver_name || item.nome || "-",
             nome: item.driver_name || item.nome || "-",
             tipoArquivo: "volta_a_volta"
-        }))
+        }, campeonato))
         .sort((a, b) => String(a.driver_name || "").localeCompare(String(b.driver_name || "")));
 
     IMPORTACAO_PREVIA = pilotosCampeonato.map((item, idx) => ({
@@ -1087,12 +1105,12 @@ async function prepararPreviewVoltaAVoltaSelecionado(fileArg = null) {
         } else if (!qtdPilotos) {
             if (status) status.innerHTML = "⚠️ Nenhum piloto foi identificado no arquivo.";
         } else if (status) {
-            status.innerHTML = `✅ Volta a volta lido: ${qtdVoltas} volta(s) e ${qtdPilotos} piloto(s) identificados. Pilotos novos serão cadastrados e vinculados ao campeonato ao salvar.`;
+            status.innerHTML = `✅ Volta a volta lido: ${qtdVoltas} volta(s) e ${qtdPilotos} piloto(s) identificados. Apenas vínculos encontrados por ID ou nome completo ficam marcados; marque manualmente novos vínculos/cadastros.`;
         }
 
         if (pyStatus) {
             pyStatus.innerHTML = qtdPilotos
-                ? `✅ Volta a volta lido: ${qtdPilotos} piloto(s) identificados para cadastro/vínculo automático.`
+                ? `✅ Volta a volta lido: ${qtdPilotos} piloto(s) identificados para conferência de vínculo/cadastro.`
                 : "⚠️ Volta a volta lido, mas nenhum piloto foi identificado.";
         }
     } catch (e) {
@@ -1117,7 +1135,7 @@ async function prepararPreviewVoltaAVoltaPyScript(html, nomeArquivo = "arquivo.h
 
         if (pyStatus) {
             pyStatus.innerHTML = pilotos.length
-                ? `✅ Volta a volta lido: ${pilotos.length} piloto(s) identificados para cadastro/vínculo automático.`
+                ? `✅ Volta a volta lido: ${pilotos.length} piloto(s) identificados para conferência de vínculo/cadastro.`
                 : "⚠️ Volta a volta lido, mas nenhum piloto foi identificado.";
         }
 
@@ -2004,7 +2022,7 @@ async function fazerBackupEProcessar() {
 
             try {
                 if (cfg.tipo === "volta_a_volta" && obterConfigHistoriaIAImportacao().gerar && !pilotosSelecionadosHistoria.length) {
-                    historiaMsg = "⚠️ Arquivo salvo, mas nenhuma história individual foi gerada porque nenhum piloto do campeonato foi selecionado.";
+                    historiaMsg = "⚠️ Arquivo salvo, mas nenhuma história individual foi gerada porque nenhum piloto foi marcado na prévia do Volta a volta.";
                 } else {
                     historiaMsg = await gerarHistoriasAposImportacao({
                         campeonato,
@@ -2172,7 +2190,7 @@ function montarImportacaoPreviaDoArquivo(registros, campeonato = "", tipoArquivo
     IMPORTACAO_PREVIA = encontrados.map(item => aplicarSugestaoVinculoPilotoImportacao({
         ...item,
         tipoArquivo
-    }));
+    }, campeonato));
 
     recalcularPreviewImportacao(campeonato, exibirHint, calcularPontos);
 
@@ -2494,9 +2512,9 @@ function recalcularPreviewImportacao(campeonato, exibirHint = false, calcularPon
         } else {
             h += `
                 <p class='hint'>
-                    Marque os pilotos que serão importados.
-                    Para Resultado Final, a posição e os pontos serão recalculados automaticamente.
-                    Para Classificação, o piloto com menor Melhor Tempo entre os selecionados recebe 1 ponto.
+                    Apenas vínculos encontrados por ID ou nome completo ficam marcados automaticamente.
+                    Marque manualmente pilotos novos ou sugestões que devem ser cadastrados/vinculados.
+                    Para Resultado Final/Classificação, posições, pontos e melhor tempo serão recalculados com base nos marcados.
                 </p>
             `;
         }
