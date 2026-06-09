@@ -1201,6 +1201,8 @@ function obterPilotosSelecionadosHistoriaVoltaAVolta(campeonato = "") {
         const driverId = String(item.driver_id || item.id_piloto || "").trim();
         const driverName = String(item.driver_name || item.nome || item.piloto || "-").trim() || "-";
 
+        if (!driverId) return;
+
         selecionados.push({
             ...item,
             checked: true,
