@@ -1211,10 +1211,11 @@ function obterPilotosSelecionadosHistoriaVoltaAVolta(campeonato = "") {
     IMPORTACAO_PREVIA.forEach((item, idx) => {
         const checkbox = document.getElementById(`imp_chk_${idx}`);
         const marcado = checkbox ? !!checkbox.checked : !!item.checked;
+        const selecionadoManual = !!item.vinculoSelecionadoManualmente && !item.conflitoId;
 
-        item.checked = marcado;
+        item.checked = marcado || selecionadoManual;
 
-        if (!marcado) return;
+        if (!item.checked) return;
 
         const driverId = String(item.driver_id || item.id_piloto || "").trim();
         const driverName = String(item.driver_name || item.nome || item.piloto || "-").trim() || "-";
@@ -2022,7 +2023,7 @@ async function fazerBackupEProcessar() {
 
             try {
                 if (cfg.tipo === "volta_a_volta" && obterConfigHistoriaIAImportacao().gerar && !pilotosSelecionadosHistoria.length) {
-                    historiaMsg = "⚠️ Arquivo salvo, mas nenhuma história individual foi gerada porque nenhum piloto foi marcado na prévia do Volta a volta.";
+                    historiaMsg = "⚠️ Arquivo salvo, mas nenhuma história individual foi gerada porque nenhum piloto foi marcado ou vinculado manualmente na prévia do Volta a volta.";
                 } else {
                     historiaMsg = await gerarHistoriasAposImportacao({
                         campeonato,
@@ -2231,6 +2232,7 @@ function alterarVinculoPilotoImportacao(idx) {
     item.criarNovoPiloto = !docId;
     item.conflitoId = false;
     item.checked = true;
+    item.vinculoSelecionadoManualmente = true;
 
     if (piloto) {
         item.status = `Vincular ao cadastro: ${piloto.nome || piloto.driver_name || piloto.id}`;
@@ -4079,16 +4081,6 @@ async function renderRankingCorridaFirestore() {
                         <select id="ranking_corrida_etapa" onchange="renderRankingCorridaFirestore()">
                             ${optionsEtapas}
                         </select>
-                    </div>
-
-                    <div class="rank-info-card">
-                        <span class="muted">Data da corrida</span>
-                        <strong>${htmlEscape(dataCorrida ? formatarDataBR(dataCorrida) : "-")}</strong>
-                    </div>
-
-                    <div class="rank-info-card">
-                        <span class="muted">Etapa selecionada</span>
-                        <strong>Etapa ${htmlEscape(etapaLabel)}</strong>
                     </div>
                 </div>
 
