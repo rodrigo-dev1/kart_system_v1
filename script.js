@@ -1205,33 +1205,58 @@ function chavePilotoHistoriaMap(item) {
     return nome ? `nome:${nome}` : "";
 }
 
+function normalizarPilotoSelecionadoHistoriaVoltaAVolta(item) {
+    const pilotoVinculado = getPilotoSelecionadoImportacao(item);
+    const driverId = String(
+        item?.driver_id ||
+        item?.id_piloto ||
+        pilotoVinculado?.id_piloto ||
+        pilotoVinculado?.driver_id ||
+        ""
+    ).trim();
+    const driverName = String(
+        item?.driver_name ||
+        item?.nome ||
+        item?.piloto ||
+        pilotoVinculado?.nome ||
+        pilotoVinculado?.driver_name ||
+        "-"
+    ).trim() || "-";
+
+    if (!driverId && driverName === "-") return null;
+
+    return {
+        ...item,
+        checked: true,
+        driver_id: driverId,
+        id_piloto: driverId,
+        driver_name: driverName,
+        nome: driverName,
+        tipoArquivo: "volta_a_volta",
+        somenteHistoria: true
+    };
+}
+
 function obterPilotosSelecionadosHistoriaVoltaAVolta(campeonato = "") {
     const selecionados = [];
+    const vistos = new Set();
 
     IMPORTACAO_PREVIA.forEach((item, idx) => {
         const checkbox = document.getElementById(`imp_chk_${idx}`);
         const marcado = checkbox ? !!checkbox.checked : !!item.checked;
-        const selecionadoManual = !!item.vinculoSelecionadoManualmente && !item.conflitoId;
 
-        item.checked = marcado || selecionadoManual;
+        item.checked = marcado;
 
-        if (!item.checked) return;
+        if (!item.checked || item.conflitoId) return;
 
-        const driverId = String(item.driver_id || item.id_piloto || "").trim();
-        const driverName = String(item.driver_name || item.nome || item.piloto || "-").trim() || "-";
+        const piloto = normalizarPilotoSelecionadoHistoriaVoltaAVolta(item);
+        if (!piloto) return;
 
-        if (!driverId) return;
+        const chave = pilotoChaveHistoria(piloto);
+        if (vistos.has(chave)) return;
 
-        selecionados.push({
-            ...item,
-            checked: true,
-            driver_id: driverId,
-            id_piloto: driverId,
-            driver_name: driverName,
-            nome: driverName,
-            tipoArquivo: "volta_a_volta",
-            somenteHistoria: true
-        });
+        vistos.add(chave);
+        selecionados.push(piloto);
     });
 
     return selecionados.sort((a, b) => String(a.driver_name || "").localeCompare(String(b.driver_name || "")));
@@ -4084,10 +4109,10 @@ async function renderRankingCorridaFirestore() {
                     </div>
                 </div>
 
-                <div class="tabs" style="margin-top: 12px;">
+                <div class="tabs rank-corrida-tabs" style="margin-top: 12px;">
                     <button id="rankingCorridaTabCorrida" class="tab-btn ${tabCorridaAtiva ? "active-tab" : ""}" onclick="trocarAbaRankingCorrida('corrida')">Corrida</button>
                     <button id="rankingCorridaTabClassificacao" class="tab-btn ${!tabCorridaAtiva ? "active-tab" : ""}" onclick="trocarAbaRankingCorrida('classificacao')">Classificação</button>
-                    <button class="tab-btn" onclick="abrirHistoriaCache('${historiaGeralId}', 'História geral da corrida')">História da corrida</button>
+                    <button class="tab-btn" onclick="abrirHistoriaCache('${historiaGeralId}', 'História geral da corrida')">História</button>
                 </div>
 
                 <div id="rankingCorridaTabela">${tabela}</div>

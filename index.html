@@ -54,6 +54,12 @@
         .table-fit { width: 100%; overflow-x: hidden; }
         .consulta-subcard { background: #151a22; border: 1px solid #394150; border-radius: 12px; padding: 12px; margin-top: 12px; }
         .rank-corrida-head { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; align-items: end; }
+        .rank-corrida-tabs { flex-wrap: nowrap; }
+        .rank-corrida-tabs .tab-btn { flex: 1 1 0; min-width: 0; padding-left: 8px; padding-right: 8px; white-space: nowrap; }
+        @media (max-width: 420px) {
+            .rank-corrida-tabs { gap: 6px; }
+            .rank-corrida-tabs .tab-btn { font-size: 12px; padding-left: 6px; padding-right: 6px; }
+        }
     </style>
 </head>
 <body>
