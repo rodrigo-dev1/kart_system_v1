@@ -42,7 +42,7 @@ let HISTORIAS_UI_CACHE = {};
 function pedirSenhaAdmin() {
     return new Promise(resolve => {
         const overlay = document.createElement("div");
-        overlay.style.cssText = "position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px;";
+        overlay.style.cssText = "position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:1000000;display:flex;align-items:center;justify-content:center;padding:16px;";
         overlay.innerHTML = `<div style="width:100%;max-width:360px;background:#1d2129;border:1px solid #394150;border-radius:12px;padding:14px;">
             <h3 style="margin:0 0 8px 0;">Senha administrativa</h3>
             <input id="senhaAdminInput" type="password" placeholder="Digite a senha" style="width:100%;padding:12px;background:#333;border:1px solid #444;color:white;border-radius:8px;box-sizing:border-box;">
