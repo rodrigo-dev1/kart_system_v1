@@ -1370,6 +1370,7 @@ function aplicarHistoriasNasLinhasRanking(linhas, historiasMap, voltaPilotosMap)
             historia_ia_piloto: row.historia_ia_piloto || row.historia_piloto || historia?.historia_ia_piloto || historia?.historia_piloto || volta?.historia_ia_piloto || volta?.historia_piloto || "",
             historiaModelo: row.historiaModelo || historia?.historiaModelo || volta?.historiaModelo || "",
             historiaPilotoAtualizadaEmISO: row.historiaPilotoAtualizadaEmISO || historia?.historiaPilotoAtualizadaEmISO || volta?.historiaPilotoAtualizadaEmISO || "",
+            historia_audio_url: row.historia_audio_url || historia?.historia_audio_url || volta?.historia_audio_url || "",
             historia_audio_data_url: row.historia_audio_data_url || historia?.historia_audio_data_url || volta?.historia_audio_data_url || ""
         };
     });
@@ -1839,7 +1840,7 @@ function registrarHistoriaUICache(historia) {
         : { texto: String(historia || "").trim() };
     HISTORIAS_UI_CACHE[id] = {
         texto: String(data.texto || data.historia || "").trim(),
-        audioDataUrl: String(data.audioDataUrl || data.historia_audio_data_url || data.audio_url || "").trim(),
+        audioDataUrl: String(data.audioDataUrl || data.audioUrl || data.historia_audio_url || data.historia_audio_data_url || data.audio_url || "").trim(),
         contexto: data.contexto || null
     };
     return id;
@@ -1849,17 +1850,42 @@ function historiaTemConteudo(item) {
     return !!(String(item?.texto || "").trim() || String(item?.audioDataUrl || "").trim());
 }
 
-function lerArquivoComoDataURL(file) {
-    return new Promise((resolve, reject) => {
-        if (!file) return resolve("");
-        const reader = new FileReader();
-        reader.onload = () => resolve(String(reader.result || ""));
-        reader.onerror = () => reject(reader.error || new Error("Falha ao ler áudio."));
-        reader.readAsDataURL(file);
+async function salvarAudioHistoriaManual(ctx, file) {
+    if (!file) return {};
+    if (!firebase.storage) throw new Error("Firebase Storage não está disponível para enviar áudio.");
+
+    const nomeSeguro = normalizarDocId(file.name || "audio.mp3");
+    const alvo = ctx?.tipo === "piloto"
+        ? normalizarDocId(ctx?.piloto?.driver_id || ctx?.piloto?.id_piloto || ctx?.piloto?.driver_name || "piloto")
+        : "corrida";
+    const caminho = [
+        "historias_audio",
+        normalizarDocId(ctx?.campeonatoDocId || "campeonato"),
+        normalizarDocId(ctx?.resultadoDocId || "resultado"),
+        normalizarDocId(ctx?.tipo || "historia"),
+        `${alvo}_${Date.now()}_${nomeSeguro}`
+    ].join("/");
+
+    const ref = firebase.storage().ref(caminho);
+    await ref.put(file, {
+        contentType: file.type || "audio/mpeg",
+        customMetadata: {
+            tipoHistoria: String(ctx?.tipo || ""),
+            resultadoDocId: String(ctx?.resultadoDocId || ""),
+            piloto: String(ctx?.piloto?.driver_name || ctx?.piloto?.nome || "")
+        }
     });
+
+    return {
+        audioUrl: await ref.getDownloadURL(),
+        audioPath: caminho,
+        audioNome: file.name || "audio",
+        audioTipo: file.type || "audio/mpeg",
+        audioTamanho: file.size || 0
+    };
 }
 
-async function salvarHistoriaManual(ctx, texto, audioDataUrl) {
+async function salvarHistoriaManual(ctx, texto, audioInfo = {}) {
     if (!ctx?.campeonatoDocId || !ctx?.resultadoDocId) throw new Error("Vínculo da corrida não encontrado.");
 
     const agoraISO = new Date().toISOString();
@@ -1882,8 +1908,12 @@ async function salvarHistoriaManual(ctx, texto, audioDataUrl) {
 
         const itemId = normalizarDocId(piloto.driver_id || piloto.id_piloto || piloto.driver_name || "piloto");
         const payloadAudio = toFirestoreSafe({
-            historia_audio_data_url: audioDataUrl || "",
-            historia_audio_atualizada_em_iso: audioDataUrl ? agoraISO : "",
+            historia_audio_url: audioInfo.audioUrl || "",
+            historia_audio_path: audioInfo.audioPath || "",
+            historia_audio_nome: audioInfo.audioNome || "",
+            historia_audio_tipo: audioInfo.audioTipo || "",
+            historia_audio_tamanho: audioInfo.audioTamanho || 0,
+            historia_audio_atualizada_em_iso: audioInfo.audioUrl ? agoraISO : "",
             historia_origem: "manual",
             atualizadoEmISO: agoraISO
         });
@@ -1902,8 +1932,12 @@ async function salvarHistoriaManual(ctx, texto, audioDataUrl) {
     await resultadoDocRef.set(toFirestoreSafe({
         historia_geral: texto,
         historia_ia_geral: texto,
-        historiaCorrida: { geral: texto, audioDataUrl: audioDataUrl || "", origem: "manual" },
-        historia_audio_data_url: audioDataUrl || "",
+        historiaCorrida: { geral: texto, audioUrl: audioInfo.audioUrl || "", origem: "manual" },
+        historia_audio_url: audioInfo.audioUrl || "",
+        historia_audio_path: audioInfo.audioPath || "",
+        historia_audio_nome: audioInfo.audioNome || "",
+        historia_audio_tipo: audioInfo.audioTipo || "",
+        historia_audio_tamanho: audioInfo.audioTamanho || 0,
         historiaAtualizadaEmISO: agoraISO,
         historiaModelo: "manual",
         historiaGeralStatus: "gerada",
@@ -1938,9 +1972,10 @@ function abrirLancamentoHistoriaModal(ctx, onSaved) {
         if (!texto && !audioFile) { alert("Informe a história em texto ou selecione um áudio."); return; }
         if (!await pedirSenhaAdmin()) return;
         try {
+            if (status) status.textContent = audioFile ? "Enviando áudio..." : "Salvando história...";
+            const audioInfo = await salvarAudioHistoriaManual(ctx, audioFile);
             if (status) status.textContent = "Salvando história...";
-            const audioDataUrl = await lerArquivoComoDataURL(audioFile);
-            await salvarHistoriaManual(ctx, texto, audioDataUrl);
+            await salvarHistoriaManual(ctx, texto, audioInfo);
             if (status) status.textContent = "✅ História salva.";
             setTimeout(() => { overlay.remove(); if (typeof onSaved === "function") onSaved(); }, 500);
         } catch (e) {
@@ -4076,7 +4111,7 @@ function montarTabelaRankingCorrida(rows, tipoAba, contextoBase = {}) {
         const historiaPiloto = row.historia_piloto || row.historia_ia_piloto || row.historiaPiloto || "";
         const historiaId = registrarHistoriaUICache({
             texto: historiaPiloto,
-            audioDataUrl: row.historia_audio_data_url || row.historiaAudioDataUrl || "",
+            audioDataUrl: row.historia_audio_url || row.historiaAudioUrl || row.historia_audio_data_url || row.historiaAudioDataUrl || "",
             contexto: {
                 ...contextoBase,
                 tipo: "piloto",
@@ -4231,7 +4266,7 @@ async function renderRankingCorridaFirestore() {
         const historiaGeral = etapaSelecionada.historia_geral || etapaSelecionada.historia_ia_geral || etapaSelecionada.historiaCorrida?.geral || "";
         const historiaGeralId = registrarHistoriaUICache({
             texto: historiaGeral,
-            audioDataUrl: etapaSelecionada.historia_audio_data_url || etapaSelecionada.historiaCorrida?.audioDataUrl || "",
+            audioDataUrl: etapaSelecionada.historia_audio_url || etapaSelecionada.historiaCorrida?.audioUrl || etapaSelecionada.historia_audio_data_url || etapaSelecionada.historiaCorrida?.audioDataUrl || "",
             contexto: { ...contextoHistoriaBase, tipo: "corrida" }
         });
 
