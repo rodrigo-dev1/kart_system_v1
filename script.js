@@ -42,7 +42,7 @@ let HISTORIAS_UI_CACHE = {};
 function pedirSenhaAdmin() {
     return new Promise(resolve => {
         const overlay = document.createElement("div");
-        overlay.style.cssText = "position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px;";
+        overlay.style.cssText = "position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:1000000;display:flex;align-items:center;justify-content:center;padding:16px;";
         overlay.innerHTML = `<div style="width:100%;max-width:360px;background:#1d2129;border:1px solid #394150;border-radius:12px;padding:14px;">
             <h3 style="margin:0 0 8px 0;">Senha administrativa</h3>
             <input id="senhaAdminInput" type="password" placeholder="Digite a senha" style="width:100%;padding:12px;background:#333;border:1px solid #444;color:white;border-radius:8px;box-sizing:border-box;">
@@ -1369,7 +1369,8 @@ function aplicarHistoriasNasLinhasRanking(linhas, historiasMap, voltaPilotosMap)
             historia_piloto: row.historia_piloto || row.historia_ia_piloto || historia?.historia_piloto || historia?.historia_ia_piloto || volta?.historia_piloto || volta?.historia_ia_piloto || "",
             historia_ia_piloto: row.historia_ia_piloto || row.historia_piloto || historia?.historia_ia_piloto || historia?.historia_piloto || volta?.historia_ia_piloto || volta?.historia_piloto || "",
             historiaModelo: row.historiaModelo || historia?.historiaModelo || volta?.historiaModelo || "",
-            historiaPilotoAtualizadaEmISO: row.historiaPilotoAtualizadaEmISO || historia?.historiaPilotoAtualizadaEmISO || volta?.historiaPilotoAtualizadaEmISO || ""
+            historiaPilotoAtualizadaEmISO: row.historiaPilotoAtualizadaEmISO || historia?.historiaPilotoAtualizadaEmISO || volta?.historiaPilotoAtualizadaEmISO || "",
+            historia_audio_data_url: row.historia_audio_data_url || historia?.historia_audio_data_url || volta?.historia_audio_data_url || ""
         };
     });
 }
@@ -1831,52 +1832,164 @@ async function gerarHistoriasAposImportacao({
     return `📖 História IA processada: ${partes.join(" + ")}.`;
 }
 
-function registrarHistoriaUICache(texto) {
+function registrarHistoriaUICache(historia) {
     const id = `hist_${Date.now()}_${Math.random().toString(36).slice(2)}`;
-    HISTORIAS_UI_CACHE[id] = String(texto || "").trim();
+    const data = typeof historia === "object" && historia !== null
+        ? historia
+        : { texto: String(historia || "").trim() };
+    HISTORIAS_UI_CACHE[id] = {
+        texto: String(data.texto || data.historia || "").trim(),
+        audioDataUrl: String(data.audioDataUrl || data.historia_audio_data_url || data.audio_url || "").trim(),
+        contexto: data.contexto || null
+    };
     return id;
 }
 
-function abrirHistoriaModal(titulo, texto) {
-    const conteudo = String(texto || "").trim();
+function historiaTemConteudo(item) {
+    return !!(String(item?.texto || "").trim() || String(item?.audioDataUrl || "").trim());
+}
 
-    if (!conteudo) {
-        alert("História ainda não gerada para este item.");
+function lerArquivoComoDataURL(file) {
+    return new Promise((resolve, reject) => {
+        if (!file) return resolve("");
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result || ""));
+        reader.onerror = () => reject(reader.error || new Error("Falha ao ler áudio."));
+        reader.readAsDataURL(file);
+    });
+}
+
+async function salvarHistoriaManual(ctx, texto, audioDataUrl) {
+    if (!ctx?.campeonatoDocId || !ctx?.resultadoDocId) throw new Error("Vínculo da corrida não encontrado.");
+
+    const agoraISO = new Date().toISOString();
+    const resultadoDocRef = firestore
+        .collection(COLLECTION_CAMPEONATOS)
+        .doc(ctx.campeonatoDocId)
+        .collection("resultado_final")
+        .doc(ctx.resultadoDocId);
+
+    if (ctx.tipo === "piloto") {
+        const piloto = ctx.piloto || {};
+        await salvarHistoriaPilotoFirestore({
+            resultadoDocRef,
+            piloto,
+            historia: texto,
+            modelo: "manual",
+            agoraISO,
+            idImportacaoHistoria: ctx.idImportacaoHistoria || ""
+        });
+
+        const itemId = normalizarDocId(piloto.driver_id || piloto.id_piloto || piloto.driver_name || "piloto");
+        const payloadAudio = toFirestoreSafe({
+            historia_audio_data_url: audioDataUrl || "",
+            historia_audio_atualizada_em_iso: audioDataUrl ? agoraISO : "",
+            historia_origem: "manual",
+            atualizadoEmISO: agoraISO
+        });
+        const classificacaoRef = resultadoDocRef.collection("classificacao").doc(itemId);
+        const classificacaoSnap = await classificacaoRef.get();
+        const writes = [
+            resultadoDocRef.collection("historias_pilotos").doc(itemId).set(payloadAudio, { merge: true }),
+            resultadoDocRef.collection("volta_a_volta_pilotos").doc(itemId).set(payloadAudio, { merge: true }),
+            resultadoDocRef.collection("pilotos_resultado").doc(itemId).set(payloadAudio, { merge: true })
+        ];
+        if (classificacaoSnap.exists) writes.push(classificacaoRef.set(payloadAudio, { merge: true }));
+        await Promise.all(writes);
         return;
+    }
+
+    await resultadoDocRef.set(toFirestoreSafe({
+        historia_geral: texto,
+        historia_ia_geral: texto,
+        historiaCorrida: { geral: texto, audioDataUrl: audioDataUrl || "", origem: "manual" },
+        historia_audio_data_url: audioDataUrl || "",
+        historiaAtualizadaEmISO: agoraISO,
+        historiaModelo: "manual",
+        historiaGeralStatus: "gerada",
+        atualizadoEmISO: agoraISO
+    }), { merge: true });
+}
+
+function abrirLancamentoHistoriaModal(ctx, onSaved) {
+    const overlay = document.createElement("div");
+    overlay.style.cssText = "position:fixed;inset:0;background:rgba(0,0,0,.72);z-index:99999;display:flex;align-items:center;justify-content:center;padding:16px;";
+    overlay.innerHTML = `
+        <div style="width:100%;max-width:680px;max-height:86vh;overflow:auto;background:#1d2129;border:1px solid #394150;border-radius:14px;padding:16px;box-shadow:0 10px 40px rgba(0,0,0,.35);">
+            <h3 style="margin:0 0 10px 0;color:#ffeb3b;">Lançar história</h3>
+            <p class="hint">O lançamento ficará vinculado automaticamente à data/etapa selecionada${ctx?.tipo === "piloto" ? " e ao piloto" : ""}.</p>
+            <label class="file-label">História em texto</label>
+            <textarea id="historiaManualTexto" rows="8" placeholder="Digite a história completa..."></textarea>
+            <label class="file-label">História em áudio</label>
+            <input id="historiaManualAudio" type="file" accept="audio/*">
+            <div class="inline-actions">
+                <button id="historiaManualSalvar">Salvar história</button>
+                <button id="historiaManualCancelar" style="background:#2b3240;border:1px solid #3a4252;">Cancelar</button>
+            </div>
+            <div id="historiaManualStatus" class="feedback"></div>
+        </div>`;
+    document.body.appendChild(overlay);
+    overlay.querySelector("#historiaManualCancelar")?.addEventListener("click", () => overlay.remove());
+    overlay.addEventListener("click", ev => { if (ev.target === overlay) overlay.remove(); });
+    overlay.querySelector("#historiaManualSalvar")?.addEventListener("click", async () => {
+        const status = overlay.querySelector("#historiaManualStatus");
+        const texto = String(overlay.querySelector("#historiaManualTexto")?.value || "").trim();
+        const audioFile = overlay.querySelector("#historiaManualAudio")?.files?.[0] || null;
+        if (!texto && !audioFile) { alert("Informe a história em texto ou selecione um áudio."); return; }
+        if (!await pedirSenhaAdmin()) return;
+        try {
+            if (status) status.textContent = "Salvando história...";
+            const audioDataUrl = await lerArquivoComoDataURL(audioFile);
+            await salvarHistoriaManual(ctx, texto, audioDataUrl);
+            if (status) status.textContent = "✅ História salva.";
+            setTimeout(() => { overlay.remove(); if (typeof onSaved === "function") onSaved(); }, 500);
+        } catch (e) {
+            console.error(e);
+            if (status) status.innerHTML = `<span class="error">❌ ${htmlEscape(e.message || e)}</span>`;
+        }
+    });
+}
+
+function abrirHistoriaModal(titulo, historia) {
+    const item = typeof historia === "object" && historia !== null ? historia : { texto: String(historia || "").trim() };
+    if (!historiaTemConteudo(item)) {
+        alert("sem história");
     }
 
     const overlay = document.createElement("div");
     overlay.style.cssText = "position:fixed;inset:0;background:rgba(0,0,0,.72);z-index:99999;display:flex;align-items:center;justify-content:center;padding:16px;";
-
     const modal = document.createElement("div");
     modal.style.cssText = "width:100%;max-width:760px;max-height:82vh;overflow:auto;background:#1d2129;border:1px solid #394150;border-radius:14px;padding:16px;box-shadow:0 10px 40px rgba(0,0,0,.35);";
+    modal.innerHTML = `<h3 style="margin:0 0 10px 0;color:#ffeb3b;">${htmlEscape(titulo || "História")}</h3>`;
 
-    const h = document.createElement("h3");
-    h.style.cssText = "margin:0 0 10px 0;color:#ffeb3b;";
-    h.textContent = titulo || "História";
+    if (historiaTemConteudo(item)) {
+        if (item.audioDataUrl) modal.innerHTML += `<audio controls style="width:100%;margin:6px 0 12px 0;" src="${htmlEscape(item.audioDataUrl)}"></audio>`;
+        modal.innerHTML += `<div style="white-space:pre-wrap;line-height:1.45;color:white;font-size:14px;">${htmlEscape(item.texto || "")}</div>`;
+    } else {
+        modal.innerHTML += `<div style="background:#3a2814;border:1px solid #ff9800;color:#ffcc80;border-radius:10px;padding:12px;margin:10px 0;">sem história</div>`;
+    }
 
-    const pre = document.createElement("div");
-    pre.style.cssText = "white-space:pre-wrap;line-height:1.45;color:white;font-size:14px;";
-    pre.textContent = conteudo;
-
+    const actions = document.createElement("div");
+    actions.className = "inline-actions";
+    if (!historiaTemConteudo(item) && item.contexto) {
+        const lancar = document.createElement("button");
+        lancar.textContent = "Lançar história";
+        lancar.addEventListener("click", () => abrirLancamentoHistoriaModal(item.contexto, () => { overlay.remove(); renderRankingCorridaFirestore(); }));
+        actions.appendChild(lancar);
+    }
     const btn = document.createElement("button");
     btn.textContent = "FECHAR";
-    btn.style.cssText = "margin-top:14px;";
+    btn.style.cssText = "background:#2b3240;border:1px solid #3a4252;";
     btn.addEventListener("click", () => overlay.remove());
-
-    modal.appendChild(h);
-    modal.appendChild(pre);
-    modal.appendChild(btn);
+    actions.appendChild(btn);
+    modal.appendChild(actions);
     overlay.appendChild(modal);
-    overlay.addEventListener("click", ev => {
-        if (ev.target === overlay) overlay.remove();
-    });
-
+    overlay.addEventListener("click", ev => { if (ev.target === overlay) overlay.remove(); });
     document.body.appendChild(overlay);
 }
 
 function abrirHistoriaCache(id, titulo) {
-    abrirHistoriaModal(titulo || "História", HISTORIAS_UI_CACHE[id] || "");
+    abrirHistoriaModal(titulo || "História", HISTORIAS_UI_CACHE[id] || { texto: "" });
 }
 
 window.abrirHistoriaCache = abrirHistoriaCache;
@@ -3901,7 +4014,7 @@ function obterPosicaoExibicaoRankingCorrida(row) {
     );
 }
 
-function montarTabelaRankingCorrida(rows, tipoAba) {
+function montarTabelaRankingCorrida(rows, tipoAba, contextoBase = {}) {
     const linhas = Array.isArray(rows) ? [...rows] : [];
 
     if (!linhas.length) {
@@ -3961,7 +4074,21 @@ function montarTabelaRankingCorrida(rows, tipoAba) {
             .join("");
 
         const historiaPiloto = row.historia_piloto || row.historia_ia_piloto || row.historiaPiloto || "";
-        const historiaId = registrarHistoriaUICache(historiaPiloto);
+        const historiaId = registrarHistoriaUICache({
+            texto: historiaPiloto,
+            audioDataUrl: row.historia_audio_data_url || row.historiaAudioDataUrl || "",
+            contexto: {
+                ...contextoBase,
+                tipo: "piloto",
+                piloto: {
+                    driver_id: row.driver_id || row.id_piloto || "",
+                    id_piloto: row.id_piloto || row.driver_id || "",
+                    driver_name: row.driver_name || row.nome || row.piloto || "piloto",
+                    nome: row.nome || row.driver_name || row.piloto || "piloto"
+                },
+                idImportacaoHistoria: row.historiaIdImportacao || row.idImportacaoHistoria || ""
+            }
+        });
         const linhaHistoria = `
             <tr>
                 <td style="color:#aaa;">História</td>
@@ -4092,11 +4219,21 @@ async function renderRankingCorridaFirestore() {
         classificacao = aplicarHistoriasNasLinhasRanking(classificacao, historiasMap, voltaPilotosMap);
 
         const tabCorridaAtiva = RANKING_CORRIDA_ABA_ATUAL !== "classificacao";
+        const contextoHistoriaBase = {
+            campeonatoDocId,
+            resultadoDocId: etapaSelecionada.docId,
+            dataCorrida,
+            etapa: etapaSelecionada.etapa || etapaSelecionada.docId || ""
+        };
         const tabela = tabCorridaAtiva
-            ? montarTabelaRankingCorrida(corrida, "corrida")
-            : montarTabelaRankingCorrida(classificacao, "classificacao");
+            ? montarTabelaRankingCorrida(corrida, "corrida", contextoHistoriaBase)
+            : montarTabelaRankingCorrida(classificacao, "classificacao", contextoHistoriaBase);
         const historiaGeral = etapaSelecionada.historia_geral || etapaSelecionada.historia_ia_geral || etapaSelecionada.historiaCorrida?.geral || "";
-        const historiaGeralId = registrarHistoriaUICache(historiaGeral);
+        const historiaGeralId = registrarHistoriaUICache({
+            texto: historiaGeral,
+            audioDataUrl: etapaSelecionada.historia_audio_data_url || etapaSelecionada.historiaCorrida?.audioDataUrl || "",
+            contexto: { ...contextoHistoriaBase, tipo: "corrida" }
+        });
 
         content.innerHTML = `
             <div class="form-card">
