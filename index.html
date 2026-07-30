@@ -61,24 +61,179 @@
             .rank-corrida-tabs { gap: 6px; }
             .rank-corrida-tabs .tab-btn { font-size: 12px; padding-left: 6px; padding-right: 6px; }
         }
+
+
+        /* ===== Tela inicial / Central do Campeonato ===== */
+        .campeonato-home { max-width: 1240px; margin: 0 auto; }
+        .home-title-row { display:flex; align-items:flex-end; justify-content:space-between; gap:16px; margin-bottom:14px; }
+        .home-title-row h2 { margin:4px 0 2px; font-size:clamp(26px,4vw,38px); }
+        .home-kicker { display:inline-block; color:#ffb74d; font-size:11px; font-weight:800; letter-spacing:.16em; }
+        .home-subtitle { margin:0; font-size:13px; }
+        .home-filter-card { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; background:#171c24; border:1px solid #303744; border-radius:16px; padding:14px; margin-bottom:10px; box-shadow:0 10px 30px rgba(0,0,0,.16); }
+        .home-filter-card select { margin:5px 0 0; }
+        .home-filter-label { display:block; font-size:11px; color:#aeb6c4; font-weight:700; text-transform:uppercase; letter-spacing:.08em; }
+        .home-status { min-height:18px; margin:8px 2px 14px; color:#9ca6b5; font-size:12px; }
+        .champ-hero { display:grid; grid-template-columns:minmax(0,1.7fr) minmax(260px,.8fr); gap:14px; margin-bottom:14px; }
+        .champ-hero-main, .champ-hero-side { background:linear-gradient(145deg,#202631,#151a22); border:1px solid #343c49; border-radius:18px; padding:18px; box-shadow:0 12px 30px rgba(0,0,0,.18); }
+        .champ-hero-main { position:relative; overflow:hidden; }
+        .champ-hero-main:after { content:""; position:absolute; width:220px; height:220px; border-radius:50%; right:-80px; top:-100px; background:radial-gradient(circle,rgba(255,75,75,.22),rgba(255,75,75,0)); pointer-events:none; }
+        .champ-title { margin:0; font-size:clamp(22px,3vw,32px); }
+        .champ-meta { display:flex; flex-wrap:wrap; gap:8px; margin-top:9px; color:#aeb6c4; font-size:12px; }
+        .champ-pill { padding:5px 9px; border-radius:999px; background:#2a303b; border:1px solid #3b4350; }
+        .hero-leader { display:flex; align-items:center; gap:12px; margin-top:18px; }
+        .hero-avatar, .dashboard-avatar { flex:0 0 auto; display:flex; align-items:center; justify-content:center; overflow:hidden; border-radius:50%; background:linear-gradient(135deg,#ff6b6b,#ffb74d); color:white; font-weight:800; border:2px solid rgba(255,255,255,.12); }
+        .hero-avatar { width:64px; height:64px; font-size:20px; }
+        .dashboard-avatar { width:58px; height:58px; font-size:17px; box-shadow:0 7px 16px rgba(0,0,0,.18); }
+        .hero-avatar img, .dashboard-avatar img { width:100%; height:100%; object-fit:cover; }
+        .hero-leader-label { color:#9ca6b5; font-size:11px; text-transform:uppercase; letter-spacing:.08em; }
+        .hero-leader-name { font-size:19px; font-weight:800; margin-top:2px; }
+        .hero-leader-score { color:#ffca6b; font-weight:800; margin-top:3px; }
+        .hero-side-number { font-size:36px; line-height:1; font-weight:900; color:#ffb74d; }
+        .hero-side-label { color:#aeb6c4; font-size:12px; margin-top:5px; }
+        .hero-side-divider { height:1px; background:#343c49; margin:14px 0; }
+        .dashboard-section-title { display:flex; align-items:center; justify-content:space-between; gap:10px; margin:20px 2px 10px; }
+        .dashboard-section-title h3 { margin:0; font-size:18px; }
+        .dashboard-section-title span { color:#8f99a8; font-size:11px; }
+        .dashboard-cards { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:12px; }
+        .dashboard-card { min-height:205px; border-radius:16px; padding:15px 13px; text-align:center; display:flex; flex-direction:column; align-items:center; justify-content:flex-start; border:1px solid rgba(255,255,255,.07); box-shadow:0 10px 24px rgba(0,0,0,.14); }
+        .dashboard-card:nth-child(8n+1) { background:linear-gradient(145deg,#27233d,#211f32); }
+        .dashboard-card:nth-child(8n+2) { background:linear-gradient(145deg,#38222e,#2b2028); }
+        .dashboard-card:nth-child(8n+3) { background:linear-gradient(145deg,#1f3043,#1d2836); }
+        .dashboard-card:nth-child(8n+4) { background:linear-gradient(145deg,#3a3320,#2d2a20); }
+        .dashboard-card:nth-child(8n+5) { background:linear-gradient(145deg,#1d3b33,#1d2e2a); }
+        .dashboard-card:nth-child(8n+6) { background:linear-gradient(145deg,#3c2728,#2e2224); }
+        .dashboard-card:nth-child(8n+7) { background:linear-gradient(145deg,#242b43,#202437); }
+        .dashboard-card:nth-child(8n+8) { background:linear-gradient(145deg,#183a3a,#1b2f31); }
+        .dashboard-card-title { width:100%; font-weight:800; font-size:14px; margin:1px 0 11px; }
+        .dashboard-card-name { font-weight:800; font-size:15px; margin-top:10px; line-height:1.2; }
+        .dashboard-card-value { color:#ffca6b; font-weight:900; font-size:18px; margin-top:4px; line-height:1.25; }
+        .dashboard-card-desc { color:#aeb6c4; font-size:11px; line-height:1.35; margin-top:auto; padding-top:10px; }
+        .dashboard-empty-mark { width:58px; height:58px; display:flex; align-items:center; justify-content:center; border-radius:50%; border:1px solid #4b5360; color:#8f99a8; font-weight:700; }
+        .podium-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:12px; margin-bottom:14px; }
+        .podium-card { background:#171c24; border:1px solid #303744; border-radius:16px; padding:14px; display:flex; align-items:center; gap:12px; min-width:0; }
+        .podium-pos { width:34px; height:34px; border-radius:10px; background:#252c37; display:flex; align-items:center; justify-content:center; font-weight:900; color:#ffca6b; }
+        .podium-info { min-width:0; }
+        .podium-name { font-weight:800; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+        .podium-meta { color:#9ca6b5; font-size:11px; margin-top:3px; }
+        .dashboard-table-card { background:#171c24; border:1px solid #303744; border-radius:16px; padding:14px; margin-bottom:14px; overflow:hidden; }
+        .dashboard-table-wrap { width:100%; overflow-x:auto; overflow-y:visible; position:relative; -webkit-overflow-scrolling:touch; overscroll-behavior-inline:contain; }
+        .dashboard-table { min-width:680px; margin:0; background:transparent; border-collapse:separate; border-spacing:0; overflow:visible; }
+        .dashboard-table.stage-table { min-width:1180px; }
+        .dashboard-table.classification-table { min-width:620px; }
+        .dashboard-table th { background:#222833; color:#ff9e9e; }
+        .dashboard-table td, .dashboard-table th { padding:10px 9px; font-size:12px; }
+        .dashboard-table tr.stage-result-top td { font-size:13px; background:rgba(255,202,92,.07); border-bottom-color:#66552d; }
+        .dashboard-table tr.stage-result-top-1 td { background:rgba(255,202,92,.13); border-bottom-color:#a88734; }
+        .dashboard-driver-cell { display:flex; align-items:center; gap:8px; min-width:180px; }
+        .dashboard-table .dashboard-sticky-identity { position:sticky; left:0; z-index:3; min-width:108px; width:108px; background:#171c24; box-shadow:5px 0 8px -7px rgba(0,0,0,.9); }
+        .dashboard-table th.dashboard-sticky-identity { z-index:4; background:#222833; }
+        .dashboard-table tr.stage-result-top td.dashboard-sticky-identity { background:#252725; }
+        .dashboard-table tr.stage-result-top-1 td.dashboard-sticky-identity { background:#302d25; }
+        .dashboard-table .dashboard-sticky-pos { position:sticky; left:0; z-index:5; min-width:72px; width:72px; background:#171c24; box-shadow:6px 0 9px -7px rgba(0,0,0,.95); white-space:nowrap; }
+        .dashboard-table th.dashboard-sticky-pos { z-index:7; background:#222833; }
+        .dashboard-table tr.stage-result-top td.dashboard-sticky-pos { background:#252725; }
+        .dashboard-table tr.stage-result-top-1 td.dashboard-sticky-pos { background:#302d25; }
+        .grid-result { display:flex; flex-direction:column; align-items:flex-start; line-height:1.15; white-space:nowrap; }
+        .grid-result strong { font-size:14px; font-weight:800; }
+        .grid-result small,.other-bonus { display:block; margin-top:3px; color:#9ca6b5; font-size:9px; font-weight:500; }
+        .dashboard-name-link { width:auto; margin:0; padding:0; border:0; background:transparent; color:#fff; font:inherit; font-weight:800; text-align:left; text-decoration:underline; text-decoration-color:#657084; text-underline-offset:3px; }
+        /* Compatibilidade com marcação antiga que possa existir em HTML cacheado. */
+        .dashboard-table .stage-result-sticky-pos { position:sticky; left:0; z-index:5; min-width:72px; width:72px; background:#171c24; box-shadow:6px 0 9px -7px rgba(0,0,0,.95); white-space:nowrap; }
+        .dashboard-identity-cell { display:flex; align-items:center; justify-content:space-between; gap:7px; white-space:nowrap; }
+        .dashboard-mini-avatar { width:30px; height:30px; flex:0 0 30px; border-radius:50%; display:flex; align-items:center; justify-content:center; overflow:hidden; background:#303744; font-size:10px; font-weight:800; }
+        .dashboard-mini-avatar img { width:100%; height:100%; object-fit:cover; }
+        .dashboard-note { color:#7f8998; font-size:10px; margin-top:8px; line-height:1.4; }
+        .dashboard-mobile-only { display:none; }
+        @media (max-width: 950px) {
+            .dashboard-cards { grid-template-columns:repeat(2,minmax(0,1fr)); }
+            .champ-hero { grid-template-columns:1fr; }
+        }
+        @media (max-width: 680px) {
+            .section { padding:14px; }
+            .home-filter-card { grid-template-columns:1fr; }
+            .dashboard-cards { grid-template-columns:1fr 1fr; gap:9px; }
+            .dashboard-card { min-height:190px; padding:12px 9px; }
+            .dashboard-card-title { font-size:12px; }
+            .dashboard-card-name { font-size:13px; }
+            .dashboard-card-value { font-size:15px; }
+            .dashboard-card-desc { font-size:10px; }
+            .podium-grid { grid-template-columns:1fr; }
+            .champ-hero-main, .champ-hero-side { padding:14px; }
+            .dashboard-table .dashboard-sticky-identity { min-width:96px; width:96px; padding-inline:6px; }
+            .dashboard-identity-cell { gap:5px; }
+        }
+        @media (max-width: 430px) {
+            .dashboard-cards { grid-template-columns:1fr; }
+        }
+        .analytics-card { background:#171c24; border:1px solid #303744; border-radius:16px; padding:16px; margin:16px 0; overflow:hidden; }
+        .analytics-card h3 { margin:0 0 16px; display:flex; align-items:center; gap:8px; }
+        .analytics-help { display:inline-flex; width:20px; height:20px; align-items:center; justify-content:center; border:1px solid #657084; border-radius:50%; color:#aeb6c4; font-size:12px; cursor:help; }
+        .analytics-state { padding:24px; text-align:center; color:#aeb6c4; background:#171c24; border-radius:14px; margin-top:14px; }
+        .bar-chart { width:100%; overflow:visible; }
+        .regularity-zones { color:#aeb6c4; font-size:11px; padding:8px; border-bottom:1px dashed #465063; margin-bottom:6px; }
+        .metric-row { appearance:none; display:grid; grid-template-columns:minmax(110px,180px) minmax(60px,1fr) 82px; align-items:center; gap:8px; width:100%; min-height:37px; padding:5px 8px; margin:0; border:0; background:transparent; color:#fff; text-align:left; }
+        .metric-row:hover { background:#222a35; } .metric-row i { display:block; height:18px; border-radius:4px; transition:width .45s ease; }
+        .metric-row b { font-size:11px; white-space:nowrap; }
+        .race-controls { display:flex; justify-content:center; align-items:center; gap:10px; margin-bottom:14px; flex-wrap:wrap; }
+        .race-controls button, .analytics-toggle button { width:auto; margin:0; padding:9px 13px; background:#29313d; }
+        .race-scroll { width:100%; overflow-x:auto; overscroll-behavior-inline:contain; }
+        .race-table { min-width:500px; }
+        .race-row { display:grid; grid-template-columns:45px minmax(75px,220px) minmax(150px,1fr) 70px; align-items:center; gap:8px; min-height:52px; transition:transform .45s ease; }
+        .race-position { position:sticky; left:0; z-index:2; align-self:stretch; display:flex; align-items:center; background:#171c24; box-shadow:5px 0 7px -7px #000; }
+        .race-track-cell { width:clamp(75px,20vw,220px); }
+        .race-row small { display:block; color:#aeb6c4; margin-top:3px; } .race-track { display:block; height:7px; background:linear-gradient(90deg,#ff4b4b,#ffb74d); border-radius:8px; transition:width .45s ease; }
+        .race-row em { font-style:normal; color:#aeb6c4; }.race-row .gain{color:#36c98f}.race-row .loss{color:#ff6b6b}
+        .analytics-toggle { display:flex; gap:8px; margin-bottom:10px; }.analytics-toggle .selected{background:#ff4b4b}
+        .analytics-kpis { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:8px; margin:10px 0; }.analytics-kpis span{background:#222a35;padding:8px;border-radius:8px;font-size:11px}
+        .overtake-head,.metric-row.overtake { display:grid; grid-template-columns:minmax(120px,180px) minmax(90px,1fr) minmax(90px,1fr); gap:8px; align-items:center; }
+        .overtake-head { color:#8f99a8; font-size:10px; font-weight:800; text-transform:uppercase; padding:5px 8px; }
+        .overtake-bar { display:grid; grid-template-columns:minmax(28px,1fr) 32px; align-items:center; gap:5px; min-width:0; }
+        .overtake-bar i { height:14px; }.metric-row .made{background:#36c98f}.metric-row .lost{background:#ff6b6b}
+        .analytics-modal { position:fixed; inset:0; z-index:1000010; background:rgba(0,0,0,.78); display:flex; align-items:center; justify-content:center; padding:14px; }
+        .analytics-modal-box { position:relative; width:min(900px,96vw); max-height:92vh; overflow:auto; background:#1d2129; border:1px solid #465063; border-radius:16px; padding:20px; }
+        .modal-close { position:absolute; right:10px; top:4px; width:auto; background:transparent; font-size:26px; margin:0; }
+        @media(max-width:680px){
+            .analytics-card{padding:12px;overflow:hidden}.analytics-card h3{font-size:16px}
+            .metric-row{grid-template-columns:minmax(95px,120px) minmax(55px,1fr) 70px;padding-inline:3px}
+            .race-filter button{flex:1;padding:9px 7px;font-size:11px}.race-controls{display:grid;grid-template-columns:44px minmax(112px,1fr) 44px;gap:8px}.race-controls strong{grid-column:1/-1;grid-row:1;text-align:center}.race-controls button{min-height:40px;padding:8px;margin:0}.race-controls #racePlay{grid-column:2}.race-controls button:last-child{grid-column:3}
+            .race-table{min-width:420px}.race-row{grid-template-columns:42px minmax(56px,92px) 155px 58px}.race-track-cell{width:clamp(56px,20vw,92px)}
+            .dashboard-table .dashboard-sticky-pos,.dashboard-table .stage-result-sticky-pos{min-width:64px;width:64px;padding-inline:6px}
+            .dashboard-table.stage-table{min-width:1120px}.dashboard-table.classification-table{min-width:560px}
+            .analytics-modal-box{width:96vw;padding:14px}.analytics-kpis{grid-template-columns:1fr}.overtake-head,.metric-row.overtake{grid-template-columns:minmax(95px,118px) minmax(72px,1fr) minmax(72px,1fr);gap:6px}.metric-row.overtake{padding-inline:2px}
+        }
+        /* Dashboard individual de pilotos */
+        .pilot-page{max-width:1240px;margin:auto}.pilot-filters{display:grid;grid-template-columns:repeat(3,1fr) auto;gap:10px;align-items:end}.pilot-filters button{margin:8px 0;width:auto}.pilot-hero{display:flex;gap:16px;align-items:center;background:linear-gradient(145deg,#202631,#151a22);border:1px solid #343c49;border-radius:18px;padding:18px;margin:16px 0}.pilot-hero h2{margin:3px 0}.pilot-hero p,.pilot-hero span{color:#aeb6c4;font-size:12px}.pilot-avatar{width:74px;height:74px;flex:0 0 74px;border-radius:50%;background:linear-gradient(135deg,#ff4b4b,#ffb74d);display:flex;align-items:center;justify-content:center;font-size:24px;font-weight:900;overflow:hidden}.pilot-avatar img{width:100%;height:100%;object-fit:cover}.pilot-kpis-head{display:flex;align-items:center;gap:7px;margin:0 0 8px}.pilot-kpis-help{width:20px!important;height:20px;margin:0!important;padding:0;border-radius:50%;font-size:12px;line-height:18px}.pilot-kpis{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:10px;margin-bottom:14px}.pilot-kpi{min-height:132px;background:#1d2129;border:1px solid #343c49;border-radius:14px;padding:12px 8px;text-align:center;display:flex;flex-direction:column;align-items:center;justify-content:center}.pilot-kpi span,.pilot-kpi b,.pilot-kpi small,.pilot-kpi em{display:block}.pilot-kpi-icon{font-size:19px;line-height:1.2}.pilot-kpi b{margin:5px 0 1px;font-size:27px;line-height:1.05;color:#ffca5c}.pilot-kpi small{min-height:28px;display:flex;align-items:center;justify-content:center;color:#e5e9ef;font-size:10px;font-weight:800;line-height:1.2;text-transform:uppercase}.pilot-kpi em{color:#8f99a8;font-size:10px;font-style:normal;line-height:1.2}.pilot-performance-help{margin:0 0 8px;color:#aeb6c4;font-size:11px;line-height:1.55}.pilot-performance-help strong{color:#dce2eb}.pilot-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;align-items:stretch}.pilot-card{min-width:0;height:100%;background:#171c24;border:1px solid #303744;border-radius:16px;padding:15px;overflow:hidden}.pilot-card h3{margin:0 0 12px}.pilot-wide{grid-column:1/-1}.pilot-table-wrap{overflow-x:auto}.pilot-table{min-width:950px;margin:0}.pilot-table th:first-child,.pilot-table td:first-child{position:sticky;left:0;background:#222833;z-index:2}.pilot-svg,.pilot-radar{width:100%;max-height:310px}.pilot-svg text,.pilot-radar text{fill:#aeb6c4;font-size:11px}.pilot-legend{display:flex;gap:14px;justify-content:center;flex-wrap:wrap;font-size:11px}.pilot-legend span:before{content:"";display:inline-block;width:9px;height:9px;background:var(--c);border-radius:50%;margin-right:5px}.pilot-bars{height:175px;display:flex;gap:10px;align-items:flex-end;justify-content:space-around;border-bottom:1px solid #465063}.pilot-bar-col{height:165px;flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;gap:3px}.pilot-bar-col i{width:min(42px,70%);background:#36c98f;border-radius:5px 5px 0 0}.pilot-bar-col i.negative{background:#ff6b6b}.pilot-bar-col i.neutral{background:#657084}.pilot-bar-col b,.pilot-bar-col small{font-size:10px}.pilot-donut{width:170px;height:170px;margin:20px auto;border-radius:50%;display:flex;flex-direction:column;align-items:center;justify-content:center;position:relative}.pilot-donut:after{content:"";position:absolute;inset:28px;background:#171c24;border-radius:50%}.pilot-donut b,.pilot-donut small{z-index:1}.pilot-donut b{font-size:30px}.pilot-achievements{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}.pilot-achievements div,.pilot-champ-card{background:#222a35;border-radius:12px;padding:14px;text-align:center}.pilot-achievements span,.pilot-achievements b,.pilot-achievements small,.pilot-champ-card span{display:block}.pilot-achievements b{font-size:22px;color:#ffca5c}.pilot-empty{padding:30px;text-align:center;color:#aeb6c4}.pilot-champ-card button{width:auto}.pilot-radar{overflow:visible}.championship-comparison{display:grid;gap:10px}.championship-comparison article{background:#202732;border:1px solid #343e4d;border-radius:12px;padding:12px}.championship-comparison h4{margin:0 0 10px;color:#ffca5c}.comparison-metrics{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}.comparison-metrics div{background:#171c24;border-radius:8px;padding:8px}.comparison-metrics small,.comparison-metrics b,.comparison-metrics span{display:block}.comparison-metrics small,.comparison-metrics span{color:#aeb6c4;font-size:9px}.comparison-metrics b{margin:3px 0;font-size:14px}.stage-summary{background:linear-gradient(145deg,#1b222d,#141920);border-color:#465063}.stage-summary-head{display:flex;gap:10px;color:#aeb6c4;margin:-4px 0 14px}.stage-summary-head b{color:#fff}.stage-summary-head b:after{content:" •";color:#657084}.stage-journeys{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}.stage-journey{background:#202732;border:1px solid #343e4d;border-radius:14px;padding:16px;text-align:center}.stage-journey h4{margin:0 0 4px;color:#ffca5c}.stage-journey p{min-height:30px;margin:0 0 14px;color:#aeb6c4;font-size:11px}.stage-positions{display:flex;align-items:end;justify-content:center;gap:clamp(18px,5vw,64px)}.stage-positions span{display:grid;gap:3px}.stage-positions small,.stage-metric small{color:#aeb6c4;font-size:10px;font-weight:700;letter-spacing:.06em}.stage-positions b{font-size:30px}.stage-positions i{align-self:center;color:#8b96a8;font-size:30px;font-style:normal}.stage-delta{display:block;margin-top:10px;font-size:13px;font-weight:800}.positive{color:#36c98f!important}.negative{color:#ff6b6b!important}.neutral{color:#aeb6c4!important}.stage-metrics{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin-top:14px}.stage-metric{display:flex;min-height:88px;flex-direction:column;justify-content:center;background:#202732;border:1px solid #343e4d;border-radius:12px;padding:13px}.stage-metric b{font-size:20px;margin-top:7px}.stage-metric span{color:#aeb6c4;font-size:11px;margin-top:4px}.stage-first-lap{grid-column:span 2}.stage-first-lap b i{color:#8b96a8;font-style:normal;margin:0 8px}.stage-first-lap .stage-delta{font-size:11px;margin-top:4px}
+        @media(max-width:1000px) and (min-width:761px){.pilot-kpis{grid-template-columns:repeat(3,minmax(0,1fr))}}@media(max-width:760px){.pilot-filters{grid-template-columns:1fr}.pilot-filters button{width:100%}.pilot-kpis{grid-template-columns:repeat(2,1fr)}.pilot-grid{grid-template-columns:1fr}.pilot-wide{grid-column:auto}.pilot-achievements{grid-template-columns:repeat(2,1fr)}.pilot-card{padding:11px}.pilot-hero{padding:14px}.pilot-radar{min-height:285px}.stage-journeys{grid-template-columns:1fr}.stage-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}.stage-first-lap{grid-column:span 2}}@media(max-width:380px){.stage-metrics{grid-template-columns:1fr}.stage-first-lap{grid-column:auto}.stage-positions{gap:18px}}
+
     </style>
 </head>
 <body>
 
 <div id="loading" style="padding: 20px; text-align: center;">Sincronizando Firebase...</div>
 
-<div id="dash" class="section active">
-    <h2>🏆 Ranking</h2>
-    <div class="form-card">
-        <select id="filtro_rank_firebase_camp" onchange="onCampeonatoRankingChange()"></select>
-
-        <div class="tabs" style="margin-top: 12px;">
-            <button id="rankTabPilotos" class="tab-btn active-tab" onclick="trocarAbaRanking('pilotos')">Pilotos</button>
-            <button id="rankTabCorrida" class="tab-btn" onclick="trocarAbaRanking('corrida')">Corrida</button>
+<div id="dash" class="section active campeonato-home">
+    <div class="home-title-row">
+        <div>
+            <span class="home-kicker">🏁 TEMPORADA</span>
+            <h2>Central do Campeonato</h2>
+            <p class="hint home-subtitle">Resumo do campeonato, destaques dos pilotos e resultados por etapa.</p>
         </div>
-
-        <div id="rankingFirestoreStatus" class="hint">Selecione um campeonato para carregar o ranking.</div>
     </div>
+
+    <div class="home-filter-card">
+        <div>
+            <label class="home-filter-label" for="filtro_rank_firebase_camp">Campeonato</label>
+            <select id="filtro_rank_firebase_camp" onchange="onCampeonatoRankingChange()"></select>
+        </div>
+        <div>
+            <label class="home-filter-label" for="filtro_rank_etapa">Visualização</label>
+            <select id="filtro_rank_etapa" onchange="onEtapaDashboardChange()">
+                <option value="geral">🏆 Geral do campeonato</option>
+            </select>
+        </div>
+    </div>
+
+    <div id="rankingFirestoreStatus" class="home-status">Selecione um campeonato para carregar os dados.</div>
     <div id="rankingFirestoreContent"></div>
 </div>
 
@@ -90,6 +245,17 @@
         <div id="arquivosDoDia" style="margin-top: 15px;"></div>
         <div id="resultadoDoDia" style="margin-top: 15px;"></div>
     </div>
+</div>
+
+<div id="pilotosDashboard" class="section pilot-page">
+    <div class="home-title-row"><div><span class="home-kicker">👤 PERFORMANCE</span><h2>Pilotos</h2><p class="hint">Dashboard individual baseado nos analytics persistidos de cada etapa.</p></div></div>
+    <div class="form-card pilot-filters">
+        <div><label class="home-filter-label">Piloto</label><select id="pilotFilterDriver" onchange="atualizarCampeonatosPiloto()"></select></div>
+        <div><label class="home-filter-label">Campeonato</label><select id="pilotFilterChampionship" onchange="atualizarEtapasPiloto()"></select></div>
+        <div><label class="home-filter-label">Etapa</label><select id="pilotFilterStage"><option value="all">Todas</option></select></div>
+        <button onclick="filtrarDashboardPiloto()">FILTRAR</button>
+    </div>
+    <div id="pilotDashboardContent" class="pilot-empty">Selecione um piloto, campeonato e etapa.</div>
 </div>
 
 <div id="importar" class="section">
@@ -128,6 +294,8 @@
         </div>
 
         <button onclick="fazerBackupEProcessar()" style="background: #2196F3;">SALVAR ARQUIVO / GERAR PRÉVIA</button>
+        <button id="btnReprocessarResumos" onclick="reprocessarResumosDashboardCampeonatoAtual()" style="background:#6d4c9a; margin-top:8px;">🔄 REPROCESSAR RESUMOS DO CAMPEONATO</button>
+        <p class="hint" style="margin-top:6px;">Use este botão uma única vez para etapas importadas antes desta atualização. Novas importações atualizam os resumos automaticamente.</p>
         <div id="statusImport" style="text-align: center; margin-top: 10px; color: #ffeb3b;"></div>
         <div id="previewImportacao" style="margin-top: 15px;"></div>
         <button id="btnConfirmarImportacao" onclick="confirmarImportacao()" style="display:none;">IMPORTAR SELECIONADOS PARA O FIREBASE</button>
@@ -164,6 +332,7 @@
             <input id="piloto_id" placeholder="id_piloto (obrigatório para novo cadastro)">
             <input id="piloto_nome" placeholder="Nome (obrigatório)">
             <input id="piloto_apelido" placeholder="Apelido">
+            <input id="piloto_foto" type="url" placeholder="Foto URL (opcional, usada no dashboard)">
             <label class="file-label" for="piloto_campeonatos">Campeonatos vinculados</label>
             <select id="piloto_campeonatos" multiple></select>
             <div class="inline-actions">
@@ -177,13 +346,19 @@
 </div>
 
 <nav class="navbar">
-    <div class="nav-item" onclick="show('dash')">📊<br>Rank</div>
+    <div class="nav-item" onclick="show('dash')">🏆<br>Campeonato</div>
+    <div class="nav-item" onclick="show('pilotosDashboard'); inicializarPilotosDashboard();">👤<br>Pilotos</div>
     <div class="nav-item" onclick="show('historico'); carregarHistorico();">📜<br>Consultar</div>
     <div class="nav-item" onclick="show('importar')">📂<br>Importar</div>
         <div class="nav-item" onclick="abrirGestao()">⚙️<br>Opções</div>
 </nav>
 
+<script src="driver_identity.js"></script>
+<script src="stage_integrity.js"></script>
+<script src="kart_analytics.js"></script>
+<script src="firestore_integrity.js"></script>
 <script src="script.js"></script>
+<script src="pilot_dashboard.js"></script>
 <script type="py" src="kart_parser.py" config="./pyscript.toml"></script>
 </body>
 </html>
